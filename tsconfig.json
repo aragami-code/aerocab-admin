@@ -1,13 +1,11 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "baseUrl": ".",
     "jsx": "react-jsx",
+    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@aerocab/shared": ["../../packages/shared/src/index.ts"]
+      "@aerocab/shared": ["./packages/shared/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
