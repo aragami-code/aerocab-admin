@@ -131,6 +131,13 @@ class AdminApiClient {
       pagination: { total: number; page: number; limit: number; totalPages: number };
     }>(`/admin/reports${qs ? `?${qs}` : ''}`);
   }
+
+  async resolveReport(id: string, action: 'resolved' | 'dismissed') {
+    return this.request<{ message: string }>(`/reports/${id}/resolve`, {
+      method: 'PATCH',
+      body: { status: action },
+    });
+  }
 }
 
 export const adminApi = new AdminApiClient(API_BASE_URL);
