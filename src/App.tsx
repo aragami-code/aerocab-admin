@@ -17,6 +17,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAdminAuthStore((s) => s.isAuthenticated);
+  if (isAuthenticated) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   const hydrate = useAdminAuthStore((s) => s.hydrate);
 
@@ -26,7 +32,9 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={
+        <AuthGuard><LoginPage /></AuthGuard>
+      } />
       <Route
         element={
           <ProtectedRoute>
