@@ -1,9 +1,9 @@
 {
-  "name": "@aerocab/admin",
+  "name": "@aerogo24/admin",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AeroCab Connect - Dashboard Admin (React + Tailwind CSS)",
+  "description": "AeroGo 24 Connect - Dashboard Admin (React + Tailwind CSS)",
   "scripts": {
     "dev": "vite --port 5173",
     "build": "tsc -b && vite build",
@@ -12,7 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@aerocab/shared": "workspace:*",
+    "@aerogo24/shared": "workspace:*",
     "lucide-react": "^0.575.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

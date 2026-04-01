@@ -266,7 +266,6 @@ export function TariffsPage() {
           <NumberInput label="Prix/km par défaut (FCFA)" value={config.basePricePerKm} onChange={v => setGlobal('basePricePerKm',v)} suffix="FCFA" />
         </div>
       </div>
-    </div>
 
       {/* Frais de démarrage (+3min) */}
       <div className="bg-white rounded-2xl border border-gray-200 p-6">

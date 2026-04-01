@@ -119,7 +119,7 @@ export function DashboardPage() {
           Dashboard
         </h2>
         <p className="text-sm text-gray-400 mt-1">
-          Vue d'ensemble de la plateforme AeroCab Connect
+          Vue d'ensemble de la plateforme AeroGo 24 Connect
         </p>
       </div>
 

@@ -1,4 +1,4 @@
-// ===== AeroCab Brand Colors =====
+// ===== AeroGo 24 Brand Colors =====
 export const COLORS = {
   primary: '#1D2C4D',
   primaryLight: '#2A4070',

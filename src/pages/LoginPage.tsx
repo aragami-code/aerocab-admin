@@ -60,7 +60,7 @@ export function LoginPage() {
             <Plane className="w-8 h-8 text-primary-dark" />
           </div>
           <h1 className="text-2xl font-bold text-white font-heading tracking-tight">
-            AeroCab Connect
+            AeroGo 24 Connect
           </h1>
           <p className="text-sm text-white/40 mt-1">Panneau d'administration</p>
         </div>
@@ -164,7 +164,7 @@ export function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-white/20 mt-6">
-          AeroCab Connect v0.1.0
+          AeroGo 24 Connect v0.1.0
         </p>
       </div>
     </div>
