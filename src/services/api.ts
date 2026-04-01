@@ -138,6 +138,26 @@ class AdminApiClient {
       body: { status: action },
     });
   }
+
+  // Tariffs
+  async getTariffs() {
+    return this.request<{
+      basePricePerKm: number;
+      fcfaPerPoint: number;
+      vehicles: Record<string, { basePricePerKm: number; minFare: number; coefficient: number }>;
+    }>('/admin/settings/tariffs');
+  }
+
+  async setTariffs(config: {
+    basePricePerKm: number;
+    fcfaPerPoint: number;
+    vehicles: Record<string, { basePricePerKm: number; minFare: number; coefficient: number }>;
+  }) {
+    return this.request<typeof config>('/admin/settings/tariffs', {
+      method: 'PUT',
+      body: config,
+    });
+  }
 }
 
 export const adminApi = new AdminApiClient(API_BASE_URL);

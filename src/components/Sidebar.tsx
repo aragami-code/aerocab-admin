@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   LogOut,
   Plane,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useAdminAuthStore } from '../stores/authStore';
 
@@ -14,8 +15,9 @@ const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/drivers', label: 'Chauffeurs', icon: Car },
   { path: '/users', label: 'Utilisateurs', icon: Users },
-  { path: '/access', label: 'Acces 48h', icon: Ticket },
+  { path: '/access', label: 'Accès 48h', icon: Ticket },
   { path: '/reports', label: 'Signalements', icon: AlertTriangle },
+  { path: '/tariffs', label: 'Tarifs & Points', icon: SlidersHorizontal },
 ];
 
 export function Sidebar() {
@@ -39,7 +41,7 @@ export function Sidebar() {
           </div>
           <div>
             <h1 className="text-lg font-bold font-heading tracking-tight">
-              AeroCab
+              AeroGo 24
             </h1>
             <p className="text-xs text-white/50 font-medium">Administration</p>
           </div>
@@ -104,7 +106,7 @@ export function Sidebar() {
             <span>Deconnexion</span>
           </button>
           <p className="text-[10px] text-white/20 text-center mt-3">
-            AeroCab Connect v0.1.0
+            AeroGo 24 Connect v0.1.0
           </p>
         </div>
       </div>
