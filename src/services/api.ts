@@ -154,7 +154,7 @@ class AdminApiClient {
     vehicles: Record<string, { basePricePerKm: number; minFare: number; coefficient: number }>;
   }) {
     return this.request<typeof config>('/admin/settings/tariffs', {
-      method: 'PUT',
+      method: 'PATCH',
       body: config,
     });
   }
