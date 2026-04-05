@@ -158,6 +158,37 @@ class AdminApiClient {
       body: config,
     });
   }
+
+  // Promos
+  async getPromos(page = 1, limit = 20) {
+    return this.request<{
+      data: PromoCode[];
+      pagination: { total: number; page: number; limit: number; totalPages: number };
+    }>(`/promos?page=${page}&limit=${limit}`);
+  }
+
+  async createPromo(dto: { code: string; discount: number; maxUses: number; expiresAt?: string }) {
+    return this.request<PromoCode>('/promos', { method: 'POST', body: dto });
+  }
+
+  async togglePromo(id: string) {
+    return this.request<PromoCode>(`/promos/${id}/toggle`, { method: 'PATCH' });
+  }
+
+  async deletePromo(id: string) {
+    return this.request<void>(`/promos/${id}`, { method: 'DELETE' });
+  }
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  discount: number;
+  maxUses: number;
+  usedCount: number;
+  expiresAt: string | null;
+  isActive: boolean;
+  createdAt: string;
 }
 
 export const adminApi = new AdminApiClient(API_BASE_URL);

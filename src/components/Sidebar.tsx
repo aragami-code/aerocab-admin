@@ -8,6 +8,7 @@ import {
   LogOut,
   Plane,
   SlidersHorizontal,
+  Tag,
 } from 'lucide-react';
 import { useAdminAuthStore } from '../stores/authStore';
 
@@ -18,6 +19,7 @@ const navItems = [
   { path: '/access', label: 'Accès 48h', icon: Ticket },
   { path: '/reports', label: 'Signalements', icon: AlertTriangle },
   { path: '/tariffs', label: 'Tarifs & Points', icon: SlidersHorizontal },
+  { path: '/promos', label: 'Codes Promo', icon: Tag },
 ];
 
 export function Sidebar() {

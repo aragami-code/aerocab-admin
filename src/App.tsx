@@ -7,6 +7,7 @@ import { UsersPage } from './pages/UsersPage';
 import { AccessPage } from './pages/AccessPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { TariffsPage } from './pages/TariffsPage';
+import { PromosPage } from './pages/PromosPage';
 import { LoginPage } from './pages/LoginPage';
 import { useAdminAuthStore } from './stores/authStore';
 
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/access" element={<AccessPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/tariffs" element={<TariffsPage />} />
+        <Route path="/promos" element={<PromosPage />} />
       </Route>
     </Routes>
   );
