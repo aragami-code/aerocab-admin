@@ -178,6 +178,42 @@ class AdminApiClient {
   async deletePromo(id: string) {
     return this.request<void>(`/promos/${id}`, { method: 'DELETE' });
   }
+
+  // Metrics
+  async getMetrics() {
+    return this.request<{
+      timestamp: string;
+      database: string;
+      uptime: number;
+      memory: { heapUsed: number; heapTotal: number; rss: number; unit: string };
+      users: { total: number };
+      drivers: { total: number; active: number };
+      bookings: { pending: number; active: number; completedToday: number; cancelledToday: number; totalRevenuePts: number };
+    }>('/metrics');
+  }
+
+  // Audit logs
+  async getAuditLogs(params: { entity?: string; limit?: number; offset?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.entity) qs.append('entity', params.entity);
+    if (params.limit)  qs.append('limit',  String(params.limit));
+    if (params.offset) qs.append('offset', String(params.offset));
+    return this.request<{ items: AuditLog[]; total: number }>(
+      `/admin/audit-logs${qs.toString() ? `?${qs}` : ''}`,
+    );
+  }
+}
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  userId: string | null;
+  adminId: string | null;
+  meta: Record<string, unknown> | null;
+  ipAddress: string | null;
+  createdAt: string;
 }
 
 export interface PromoCode {
