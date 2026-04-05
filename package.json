@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@aerogo24/shared": "file:../aerocab-deploy/packages/shared",
+    "@aerogo24/shared": "workspace:*",
     "lucide-react": "^0.575.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
