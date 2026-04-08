@@ -58,10 +58,10 @@ export function DriversPage() {
     }
   };
 
-  const handleVerify = async (driverId: string, action: 'approve' | 'reject', reason?: string) => {
+  const handleVerify = async (driverId: string, action: 'approve' | 'reject' | 'suspend', reason?: string) => {
     try {
       setActionLoading(driverId);
-      await adminApi.verifyDriver(driverId, action, reason);
+      await adminApi.verifyDriver(driverId, action as any, reason);
       await loadDrivers();
     } catch (err: any) {
       alert(err.message || 'Erreur');
@@ -224,6 +224,32 @@ export function DriversPage() {
                                   Rejeter
                                 </button>
                               </>
+                            )}
+                            {driverStatus === 'approved' && (
+                              <button
+                                onClick={() => {
+                                  if (!window.confirm(`Suspendre le chauffeur ${name} ? Il ne recevra plus de courses.`)) return;
+                                  handleVerify(driver.id, 'suspend');
+                                }}
+                                disabled={actionLoading === driver.id}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600 bg-red-50/50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <XCircle className="w-3 h-3" />
+                                Suspendre
+                              </button>
+                            )}
+                            {driverStatus === 'suspended' && (
+                              <button
+                                onClick={() => {
+                                  if (!window.confirm(`Réactiver le chauffeur ${name} ?`)) return;
+                                  handleVerify(driver.id, 'approve');
+                                }}
+                                disabled={actionLoading === driver.id}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <CheckCircle className="w-3 h-3" />
+                                Réactiver
+                              </button>
                             )}
                           </div>
                         </td>

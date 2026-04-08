@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   Tag,
   ClipboardList,
+  Share2,
 } from 'lucide-react';
 import { useAdminAuthStore } from '../stores/authStore';
 
@@ -20,7 +21,9 @@ const navItems = [
   { path: '/access', label: 'Accès 48h', icon: Ticket },
   { path: '/reports', label: 'Signalements', icon: AlertTriangle },
   { path: '/tariffs', label: 'Tarifs & Points', icon: SlidersHorizontal },
+  { path: '/airports', label: 'Aéroports', icon: Plane },
   { path: '/promos', label: 'Codes Promo', icon: Tag },
+  { path: '/referrals', label: 'Parrainage', icon: Share2 },
   { path: '/audit', label: 'Journal d\'audit', icon: ClipboardList },
 ];
 

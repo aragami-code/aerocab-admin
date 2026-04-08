@@ -2,7 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { Save, RotateCcw, DollarSign, Car, Zap, Package, Clock, Globe, Plus, Trash2, ChevronRight } from 'lucide-react';
 import { adminApi } from '../services/api';
 
-interface VehicleTariff { basePricePerKm: number; minFare: number; coefficient: number; }
+interface VehicleTariff {
+  basePricePerKm: number;
+  minFare: number;
+  coefficient: number;
+  label?: string;
+  isActive?: boolean;
+  maxPassengers?: number;
+}
 interface SurgeConfig {
   nightMultiplier: number; rainMultiplier: number; rushHourMultiplier: number;
   rushHourStart: string; rushHourEnd: string; rushHourStart2: string; rushHourEnd2: string;
@@ -20,9 +27,6 @@ interface TariffsConfig {
   surge: SurgeConfig;
 }
 
-const VEHICLE_LABELS: Record<string, string> = {
-  eco: 'Eco', eco_plus: 'Eco+', standard: 'Standard', confort: 'Confort', confort_plus: 'Confort+',
-};
 
 // Pays connus avec leurs devises et libellés
 const KNOWN_COUNTRIES: Record<string, { name: string; currency: string; symbol: string; flag: string }> = {
@@ -128,7 +132,7 @@ function TariffForm({
   const sym = config.currencySymbol || 'FCFA';
 
   const setGlobal = (key: keyof TariffsConfig, v: number | string) => setConfig({ ...config, [key]: v });
-  const setVehicle = (vt: string, key: keyof VehicleTariff, v: number) =>
+  const setVehicle = (vt: string, key: keyof VehicleTariff, v: number | string | boolean) =>
     setConfig({ ...config, vehicles: { ...config.vehicles, [vt]: { ...config.vehicles[vt], [key]: v } } });
   const setConsigne = (vt: string, v: number) =>
     setConfig({ ...config, consigne: { ...config.consigne, [vt]: { dailyRate: v } } });
@@ -208,64 +212,102 @@ function TariffForm({
         </div>
       </div>
 
-      {/* Vehicle tariffs */}
+      {/* Vehicle tariffs — dynamique */}
       <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center"><Car className="w-5 h-5 text-blue-500" /></div>
-          <div><h2 className="font-semibold text-gray-900">Tarifs véhicules</h2><p className="text-xs text-gray-500">Prix de base, coefficient et tarif minimum par catégorie</p></div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                {['Véhicule', `Prix/km (${sym})`, 'Coefficient', `Tarif min (${sym})`, 'Aperçu 15km'].map(h => (
-                  <th key={h} className="text-left py-2 px-3 font-medium text-gray-500 text-xs uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {Object.keys(VEHICLE_LABELS).map(vt => {
-                const v = config.vehicles[vt] ?? DEFAULT_TARIFFS.vehicles[vt];
-                return (
-                  <tr key={vt} className="hover:bg-gray-50/50">
-                    <td className="py-3 px-3 font-semibold text-gray-800">{VEHICLE_LABELS[vt]}</td>
-                    <td className="py-3 px-3"><input type="number" min={0} value={v.basePricePerKm} onChange={e => setVehicle(vt, 'basePricePerKm', +e.target.value)} className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" /></td>
-                    <td className="py-3 px-3"><input type="number" min={0.1} step={0.1} value={v.coefficient} onChange={e => setVehicle(vt, 'coefficient', +e.target.value)} className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" /></td>
-                    <td className="py-3 px-3"><input type="number" min={0} step={500} value={v.minFare} onChange={e => setVehicle(vt, 'minFare', +e.target.value)} className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" /></td>
-                    <td className="py-3 px-3">
-                      <span className="font-semibold text-primary">{previewPrice(vt).toLocaleString()} {sym}</span>
-                      <span className="text-xs text-gray-400 ml-1">≈ {Math.ceil(previewPrice(vt) / config.fcfaPerPoint)} pts</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Consigne */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center"><Package className="w-5 h-5 text-purple-500" /></div>
-          <div>
-            <h2 className="font-semibold text-gray-900">Tarifs Consigne</h2>
-            <p className="text-xs text-gray-500">Tarif journalier de mise en consigne du véhicule (8h–20h30)</p>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center"><Car className="w-5 h-5 text-blue-500" /></div>
+            <div><h2 className="font-semibold text-gray-900">Catégories de véhicules</h2><p className="text-xs text-gray-500">Ajouter, activer/désactiver ou supprimer des catégories</p></div>
           </div>
+          <button
+            onClick={() => {
+              const id = `custom_${Date.now()}`;
+              setConfig({ ...config, vehicles: { ...config.vehicles, [id]: { basePricePerKm: 250, minFare: 3000, coefficient: 1.0, label: 'Nouveau', isActive: true, maxPassengers: 4 } }, consigne: { ...config.consigne, [id]: { dailyRate: 5000 } } });
+            }}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-primary bg-primary/5 rounded-lg hover:bg-primary/10"
+          >
+            <Plus className="w-4 h-4" /> Ajouter
+          </button>
         </div>
-        <div className="grid grid-cols-5 gap-4">
-          {Object.keys(VEHICLE_LABELS).map(vt => (
-            <div key={vt}>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{VEHICLE_LABELS[vt]}</label>
-              <div className="relative">
-                <input type="number" min={0} step={500} value={config.consigne[vt]?.dailyRate ?? 8000}
-                  onChange={e => setConsigne(vt, +e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-8"
-                />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">{sym}/j</span>
+        <div className="space-y-3">
+          {Object.keys(config.vehicles).map(vt => {
+            const v = config.vehicles[vt];
+            const active = v.isActive !== false;
+            return (
+              <div key={vt} className={`border rounded-xl p-4 transition-all ${active ? 'border-gray-200 bg-white' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
+                <div className="flex items-center gap-3 mb-3">
+                  {/* Toggle actif/inactif */}
+                  <button
+                    onClick={() => setVehicle(vt, 'isActive' as any, !active)}
+                    title={active ? 'Désactiver' : 'Activer'}
+                    className={`w-10 h-6 rounded-full transition-colors flex-shrink-0 relative ${active ? 'bg-green-400' : 'bg-gray-300'}`}
+                  >
+                    <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${active ? 'translate-x-5' : 'translate-x-1'}`} />
+                  </button>
+                  {/* Label éditable */}
+                  <input
+                    type="text"
+                    value={v.label ?? vt}
+                    onChange={e => setVehicle(vt, 'label' as any, e.target.value)}
+                    className="flex-1 font-semibold text-gray-800 bg-transparent border-b border-transparent hover:border-gray-200 focus:border-primary focus:outline-none text-sm"
+                    placeholder="Nom de la catégorie"
+                  />
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${active ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
+                    {active ? 'Actif' : 'Inactif'}
+                  </span>
+                  {/* Supprimer */}
+                  <button
+                    onClick={() => {
+                      const { [vt]: _, ...rest } = config.vehicles;
+                      const { [vt]: __, ...restC } = config.consigne;
+                      setConfig({ ...config, vehicles: rest, consigne: restC });
+                    }}
+                    className="text-red-400 hover:text-red-600 p-1 rounded"
+                    title="Supprimer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-5 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Prix/km ({sym})</label>
+                    <input type="number" min={0} value={v.basePricePerKm} onChange={e => setVehicle(vt, 'basePricePerKm', +e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Coefficient</label>
+                    <input type="number" min={0.1} step={0.1} value={v.coefficient} onChange={e => setVehicle(vt, 'coefficient', +e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Base fixe ({sym})</label>
+                    <input type="number" min={0} step={500} value={v.minFare} onChange={e => setVehicle(vt, 'minFare', +e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Places max</label>
+                    <input type="number" min={1} max={20} value={v.maxPassengers ?? 4} onChange={e => setVehicle(vt, 'maxPassengers' as any, +e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Aperçu 15km</label>
+                    <div className="py-1.5">
+                      <span className="font-semibold text-primary text-sm">{previewPrice(vt).toLocaleString()} {sym}</span>
+                      <br /><span className="text-[10px] text-gray-400">≈ {Math.ceil(previewPrice(vt) / config.fcfaPerPoint)} pts</span>
+                    </div>
+                  </div>
+                </div>
+                {/* Consigne pour cette catégorie */}
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3">
+                  <Package className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                  <span className="text-xs text-gray-500">Consigne/jour :</span>
+                  <div className="relative w-32">
+                    <input type="number" min={0} step={500} value={config.consigne[vt]?.dailyRate ?? 5000}
+                      onChange={e => setConsigne(vt, +e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-8"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">{sym}/j</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
