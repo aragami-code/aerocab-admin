@@ -159,6 +159,27 @@ class AdminApiClient {
     });
   }
 
+  async getCountriesWithTariffs() {
+    return this.request<string[]>('/admin/settings/tariffs/countries');
+  }
+
+  async getTariffsByCountry(countryCode: string) {
+    return this.request<any>(`/admin/settings/tariffs/country/${countryCode}`);
+  }
+
+  async setTariffsByCountry(countryCode: string, config: any) {
+    return this.request<any>(`/admin/settings/tariffs/country/${countryCode}`, {
+      method: 'PATCH',
+      body: config,
+    });
+  }
+
+  async deleteTariffsByCountry(countryCode: string) {
+    return this.request<any>(`/admin/settings/tariffs/country/${countryCode}/delete`, {
+      method: 'PATCH',
+    });
+  }
+
   // Promos
   async getPromos(page = 1, limit = 20) {
     return this.request<{
@@ -167,7 +188,7 @@ class AdminApiClient {
     }>(`/promos?page=${page}&limit=${limit}`);
   }
 
-  async createPromo(dto: { code: string; discount: number; maxUses: number; expiresAt?: string }) {
+  async createPromo(dto: { code: string; discount: number; maxUses: number; expiresAt?: string; usagePerUser?: boolean }) {
     return this.request<PromoCode>('/promos', { method: 'POST', body: dto });
   }
 
@@ -202,6 +223,31 @@ class AdminApiClient {
       `/admin/audit-logs${qs.toString() ? `?${qs}` : ''}`,
     );
   }
+
+  // Airports
+  async getAirportsAdmin() {
+    return this.request<Airport[]>('/airports/admin');
+  }
+
+  async createAirport(data: Partial<Airport>) {
+    return this.request<Airport>('/airports', { method: 'POST', body: data });
+  }
+
+  async updateAirport(id: string, data: Partial<Airport>) {
+    return this.request<Airport>(`/airports/${id}`, { method: 'PATCH', body: data });
+  }
+
+  async deleteAirport(id: string) {
+    return this.request<void>(`/airports/${id}`, { method: 'DELETE' });
+  }
+
+  // Referrals
+  async getReferrals(page = 1, limit = 20) {
+    return this.request<{
+      data: any[];
+      pagination: { total: number; page: number; limit: number; totalPages: number };
+    }>(`/admin/referrals?page=${page}&limit=${limit}`);
+  }
 }
 
 export interface AuditLog {
@@ -224,7 +270,23 @@ export interface PromoCode {
   usedCount: number;
   expiresAt: string | null;
   isActive: boolean;
+  usagePerUser: boolean;
   createdAt: string;
+}
+
+export interface Airport {
+  id: string;
+  iataCode: string;
+  icaoCode: string | null;
+  name: string;
+  city: string;
+  country: string;
+  countryCode: string;
+  latitude: number;
+  longitude: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const adminApi = new AdminApiClient(API_BASE_URL);
