@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Save, RotateCcw, DollarSign, Car, Zap, Package, Clock, Globe, Plus, Trash2, ChevronRight } from 'lucide-react';
+import { Save, RotateCcw, DollarSign, Car, Zap, Package, Clock, Globe, Plus, Trash2, ChevronRight, Star } from 'lucide-react';
 import { adminApi } from '../services/api';
 
 interface VehicleTariff {
@@ -14,6 +14,11 @@ interface SurgeConfig {
   nightMultiplier: number; rainMultiplier: number; rushHourMultiplier: number;
   rushHourStart: string; rushHourEnd: string; rushHourStart2: string; rushHourEnd2: string;
 }
+interface ReferralBonus {
+  onSignup: number;
+  onFirstRide: number;
+  newUserBonus: number;
+}
 interface TariffsConfig {
   basePricePerKm: number;
   fcfaPerPoint: number;
@@ -25,6 +30,11 @@ interface TariffsConfig {
   vehicles: Record<string, VehicleTariff>;
   consigne: Record<string, { dailyRate: number }>;
   surge: SurgeConfig;
+  // Système de points
+  pointValue: number;
+  pointRechargeRate: number;
+  cashbackRate: number;
+  referralBonus: ReferralBonus;
 }
 
 
@@ -72,15 +82,20 @@ const DEFAULT_TARIFFS: TariffsConfig = {
     rushHourStart: '07:00', rushHourEnd: '09:00',
     rushHourStart2: '17:00', rushHourEnd2: '19:00',
   },
+  pointValue: 1,
+  pointRechargeRate: 1,
+  cashbackRate: 0.05,
+  referralBonus: { onSignup: 500, onFirstRide: 1000, newUserBonus: 300 },
 };
 
 function mergeTariffs(data: any): TariffsConfig {
   return {
     ...DEFAULT_TARIFFS,
     ...data,
-    vehicles: { ...DEFAULT_TARIFFS.vehicles, ...(data.vehicles ?? {}) },
-    consigne: { ...DEFAULT_TARIFFS.consigne, ...(data.consigne ?? {}) },
-    surge:    { ...DEFAULT_TARIFFS.surge,    ...(data.surge    ?? {}) },
+    vehicles:      { ...DEFAULT_TARIFFS.vehicles,      ...(data.vehicles      ?? {}) },
+    consigne:      { ...DEFAULT_TARIFFS.consigne,      ...(data.consigne      ?? {}) },
+    surge:         { ...DEFAULT_TARIFFS.surge,         ...(data.surge         ?? {}) },
+    referralBonus: { ...DEFAULT_TARIFFS.referralBonus, ...(data.referralBonus ?? {}) },
   };
 }
 
@@ -336,6 +351,75 @@ function TariffForm({
           <p className="text-xs text-gray-400 mt-3">
             Exemple : si le prix de base est 5 000 {sym} et qu'il pleut + nuit → {Math.round(5000 * config.surge.rainMultiplier * config.surge.nightMultiplier).toLocaleString()} {sym}
           </p>
+        </div>
+      </div>
+
+      {/* Système de points */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-9 h-9 rounded-xl bg-yellow-50 flex items-center justify-center"><Star className="w-5 h-5 text-yellow-500" /></div>
+          <div>
+            <h2 className="font-semibold text-gray-900">Système de points</h2>
+            <p className="text-xs text-gray-500">Taux de conversion et cashback pour ce pays</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-6 mb-6">
+          <div>
+            <NumberInput
+              label={`Valeur d'1 point (${sym})`}
+              value={config.pointValue}
+              onChange={v => setConfig({ ...config, pointValue: v })}
+              suffix={sym}
+              step={0.01}
+              min={0.01}
+            />
+            <p className="text-xs text-gray-400 mt-1">1 pt = {config.pointValue} {sym}</p>
+          </div>
+          <div>
+            <NumberInput
+              label={`Taux de recharge (pts/${sym})`}
+              value={config.pointRechargeRate}
+              onChange={v => setConfig({ ...config, pointRechargeRate: v })}
+              suffix="pts"
+              step={0.1}
+              min={0.01}
+            />
+            <p className="text-xs text-gray-400 mt-1">1 {sym} versé = {config.pointRechargeRate} pt(s)</p>
+          </div>
+          <div>
+            <NumberInput
+              label="Cashback après course"
+              value={Math.round(config.cashbackRate * 100)}
+              onChange={v => setConfig({ ...config, cashbackRate: v / 100 })}
+              suffix="%"
+              step={1}
+              min={0}
+            />
+            <p className="text-xs text-gray-400 mt-1">Ex: course 5 000 {sym} → {Math.round(5000 * config.cashbackRate / config.pointValue)} pts</p>
+          </div>
+        </div>
+
+        <p className="text-xs font-medium text-gray-500 mb-3 uppercase tracking-wide">Bonus parrainage</p>
+        <div className="grid grid-cols-3 gap-6">
+          <NumberInput
+            label="Parrain — à l'inscription"
+            value={config.referralBonus.onSignup}
+            onChange={v => setConfig({ ...config, referralBonus: { ...config.referralBonus, onSignup: v } })}
+            suffix="pts"
+          />
+          <NumberInput
+            label="Parrain — 1re course filleul"
+            value={config.referralBonus.onFirstRide}
+            onChange={v => setConfig({ ...config, referralBonus: { ...config.referralBonus, onFirstRide: v } })}
+            suffix="pts"
+          />
+          <NumberInput
+            label="Nouvel utilisateur"
+            value={config.referralBonus.newUserBonus}
+            onChange={v => setConfig({ ...config, referralBonus: { ...config.referralBonus, newUserBonus: v } })}
+            suffix="pts"
+          />
         </div>
       </div>
 
