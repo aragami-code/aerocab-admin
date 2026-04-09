@@ -27,6 +27,7 @@ interface TariffsConfig {
   pricePerMinute: number;
   currency?: string;
   currencySymbol?: string;
+  consigneEnabled: boolean;
   vehicles: Record<string, VehicleTariff>;
   consigne: Record<string, { dailyRate: number }>;
   surge: SurgeConfig;
@@ -63,6 +64,7 @@ const DEFAULT_TARIFFS: TariffsConfig = {
   pricePerMinute: 50,
   currency: 'XAF',
   currencySymbol: 'FCFA',
+  consigneEnabled: true,
   vehicles: {
     eco:          { basePricePerKm: 250, minFare: 3000,  coefficient: 1.0 },
     eco_plus:     { basePricePerKm: 250, minFare: 3500,  coefficient: 1.2 },
@@ -324,6 +326,31 @@ function TariffForm({
             );
           })}
         </div>
+      </div>
+
+      {/* Consigne — activation par pays */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center"><Package className="w-5 h-5 text-purple-500" /></div>
+            <div>
+              <h2 className="font-semibold text-gray-900">Service Consigne</h2>
+              <p className="text-xs text-gray-500">Laisser un véhicule à l'aéroport pendant un voyage</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setConfig({ ...config, consigneEnabled: !config.consigneEnabled })}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${config.consigneEnabled ? 'bg-purple-500' : 'bg-gray-200'}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${config.consigneEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+        {!config.consigneEnabled && (
+          <p className="mt-3 text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+            La consigne est désactivée pour ce pays — le bloc ne sera pas affiché dans l'app passager.
+          </p>
+        )}
       </div>
 
       {/* Surge config */}
