@@ -46,7 +46,7 @@ export function AuditLogsPage() {
   };
 
   const formatDate = (d: string) =>
-    new Date(d).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'medium' });
+    new Date(d).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
