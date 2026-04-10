@@ -248,6 +248,26 @@ class AdminApiClient {
       pagination: { total: number; page: number; limit: number; totalPages: number };
     }>(`/admin/referrals?page=${page}&limit=${limit}`);
   }
+
+  // Bookings
+  async getBookings(params: { status?: string; page?: number; limit?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.status) qs.append('status', params.status);
+    if (params.page)   qs.append('page',   String(params.page));
+    if (params.limit)  qs.append('limit',  String(params.limit));
+    return this.request<{
+      data: any[];
+      pagination: { total: number; page: number; limit: number; totalPages: number };
+    }>(`/admin/bookings${qs.toString() ? `?${qs}` : ''}`);
+  }
+
+  async cancelBookingAdmin(bookingId: string) {
+    return this.request<any>(`/admin/bookings/${bookingId}/cancel`, { method: 'PATCH' });
+  }
+
+  async updateDriverProfile(driverId: string, data: { driverType?: string; consigneEnabled?: boolean }) {
+    return this.request<any>(`/admin/drivers/${driverId}/profile`, { method: 'PATCH', body: data });
+  }
 }
 
 export interface AuditLog {

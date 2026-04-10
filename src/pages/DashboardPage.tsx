@@ -4,10 +4,7 @@ import {
   Users,
   Ticket,
   TrendingUp,
-  ArrowUpRight,
-  ArrowDownRight,
   Activity,
-  Clock,
   Loader2,
   AlertCircle,
 } from 'lucide-react';
@@ -20,6 +17,14 @@ interface Stats {
   approvedDrivers: number;
   activeAccessPasses: number;
   totalRevenue: number;
+  bookings?: {
+    total: number;
+    pending: number;
+    active: number;
+    completed: number;
+    cancelled: number;
+    completedToday: number;
+  };
 }
 
 export function DashboardPage() {
@@ -155,6 +160,25 @@ export function DashboardPage() {
           );
         })}
       </div>
+
+      {/* Booking Stats */}
+      {stats?.bookings && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+          {[
+            { label: 'Total', value: stats.bookings.total, color: 'text-gray-700' },
+            { label: 'En attente', value: stats.bookings.pending, color: 'text-amber-600' },
+            { label: 'En cours', value: stats.bookings.active, color: 'text-blue-600' },
+            { label: 'Terminées', value: stats.bookings.completed, color: 'text-emerald-600' },
+            { label: 'Annulées', value: stats.bookings.cancelled, color: 'text-red-500' },
+            { label: "Terminées aujourd'hui", value: stats.bookings.completedToday, color: 'text-purple-600' },
+          ].map((s) => (
+            <div key={s.label} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100/80 text-center">
+              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+              <p className="text-xs text-gray-400 mt-1">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">

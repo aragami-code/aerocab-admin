@@ -11,11 +11,13 @@ import {
   Tag,
   ClipboardList,
   Share2,
+  CalendarClock,
 } from 'lucide-react';
 import { useAdminAuthStore } from '../stores/authStore';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/bookings', label: 'Réservations', icon: CalendarClock },
   { path: '/drivers', label: 'Chauffeurs', icon: Car },
   { path: '/users', label: 'Utilisateurs', icon: Users },
   { path: '/access', label: 'Accès 48h', icon: Ticket },

@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import {
   Car,
   Search,
-  Filter,
   Clock,
   CheckCircle,
   XCircle,
@@ -35,6 +34,7 @@ export function DriversPage() {
   const [rejectModal, setRejectModal] = useState<{driverId: string; name: string} | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [detailDriver, setDetailDriver] = useState<any>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
 
   useEffect(() => {
     loadDrivers();
@@ -362,6 +362,45 @@ export function DriversPage() {
                 <span className="text-sm text-gray-500">Statut</span>
                 <span className="text-sm font-medium">{detailDriver.status}</span>
               </div>
+              {/* Type chauffeur */}
+              <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                <span className="text-sm text-gray-500">Type chauffeur</span>
+                <select
+                  value={detailDriver.driverType ?? 'external'}
+                  onChange={(e) => setDetailDriver({ ...detailDriver, driverType: e.target.value })}
+                  className="text-sm font-medium border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="external">Partenaire externe</option>
+                  <option value="internal">Flotte AeroGo (interne)</option>
+                </select>
+              </div>
+              {/* Service consigne */}
+              <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                <span className="text-sm text-gray-500">Service consigne</span>
+                <button
+                  onClick={() => setDetailDriver({ ...detailDriver, consigneEnabled: !detailDriver.consigneEnabled })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${detailDriver.consigneEnabled ? 'bg-purple-500' : 'bg-gray-200'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${detailDriver.consigneEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              <button
+                disabled={profileSaving}
+                onClick={async () => {
+                  setProfileSaving(true);
+                  try {
+                    await adminApi.updateDriverProfile(detailDriver.id, {
+                      driverType: detailDriver.driverType,
+                      consigneEnabled: detailDriver.consigneEnabled,
+                    });
+                    await loadDrivers();
+                  } catch (err: any) { alert(err.message || 'Erreur'); }
+                  finally { setProfileSaving(false); }
+                }}
+                className="w-full mt-2 px-4 py-2.5 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {profileSaving ? 'Enregistrement...' : 'Enregistrer les modifications'}
+              </button>
               {detailDriver.documents && detailDriver.documents.length > 0 && (
                 <div>
                   <p className="text-sm text-gray-500 mb-2">Documents ({detailDriver.documents.length})</p>
