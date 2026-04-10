@@ -21,6 +21,7 @@ const mockPromo = {
   maxUses: 100,
   usedCount: 10,
   isActive: true,
+  usagePerUser: false,
   expiresAt: null,
   createdAt: new Date().toISOString(),
 };
