@@ -406,11 +406,51 @@ export function DriversPage() {
                   <p className="text-sm text-gray-500 mb-2">Documents ({detailDriver.documents.length})</p>
                   <div className="space-y-2">
                     {detailDriver.documents.map((doc: any) => (
-                      <div key={doc.id} className="flex items-center justify-between bg-gray-50 px-3 py-2 rounded-lg text-xs">
-                        <span className="font-medium">{doc.type}</span>
-                        <span className={doc.status === 'approved' ? 'text-emerald-600' : doc.status === 'rejected' ? 'text-red-500' : 'text-amber-600'}>
-                          {doc.status}
-                        </span>
+                      <div key={doc.id} className="bg-gray-50 px-3 py-2 rounded-lg text-xs">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="font-medium">{doc.type}</span>
+                          <span className={doc.status === 'approved' ? 'text-emerald-600 font-semibold' : doc.status === 'rejected' ? 'text-red-500 font-semibold' : 'text-amber-600 font-semibold'}>
+                            {doc.status}
+                          </span>
+                        </div>
+                        {doc.fileUrl && (
+                          <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-primary underline text-[10px] block mb-1.5">
+                            Voir le document
+                          </a>
+                        )}
+                        {doc.status === 'pending' && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await adminApi.verifyDocument(doc.id, 'approve');
+                                  setDetailDriver((prev: any) => prev ? {
+                                    ...prev,
+                                    documents: prev.documents.map((d: any) => d.id === doc.id ? { ...d, status: 'approved' } : d),
+                                  } : prev);
+                                } catch (e: any) { alert(e.message); }
+                              }}
+                              className="flex-1 py-1 rounded bg-emerald-100 text-emerald-700 font-semibold hover:bg-emerald-200 transition-colors"
+                            >
+                              Approuver
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const reason = prompt('Motif de rejet (optionnel)');
+                                try {
+                                  await adminApi.verifyDocument(doc.id, 'reject', reason ?? undefined);
+                                  setDetailDriver((prev: any) => prev ? {
+                                    ...prev,
+                                    documents: prev.documents.map((d: any) => d.id === doc.id ? { ...d, status: 'rejected' } : d),
+                                  } : prev);
+                                } catch (e: any) { alert(e.message); }
+                              }}
+                              className="flex-1 py-1 rounded bg-red-100 text-red-600 font-semibold hover:bg-red-200 transition-colors"
+                            >
+                              Rejeter
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

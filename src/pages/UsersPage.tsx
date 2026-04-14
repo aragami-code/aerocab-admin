@@ -20,6 +20,10 @@ export function UsersPage() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 10 });
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [pointsModal, setPointsModal] = useState(false);
+  const [pointsAmount, setPointsAmount] = useState('');
+  const [pointsReason, setPointsReason] = useState('');
+  const [pointsLoading, setPointsLoading] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -249,12 +253,68 @@ export function UsersPage() {
               </div>
             </div>
 
-            <button
-              className="mt-6 w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-sm font-medium text-gray-700 rounded-xl transition-colors cursor-pointer"
-              onClick={() => setSelectedUser(null)}
-            >
-              Fermer
-            </button>
+            {!pointsModal ? (
+              <div className="mt-6 flex flex-col gap-2">
+                <button
+                  className="w-full py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 transition-colors cursor-pointer"
+                  onClick={() => { setPointsModal(true); setPointsAmount(''); setPointsReason(''); }}
+                >
+                  Ajuster les points
+                </button>
+                <button
+                  className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-sm font-medium text-gray-700 rounded-xl transition-colors cursor-pointer"
+                  onClick={() => setSelectedUser(null)}
+                >
+                  Fermer
+                </button>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-3">
+                <p className="text-sm font-semibold text-gray-700">Ajustement de points</p>
+                <input
+                  type="number"
+                  placeholder="Montant (+500 ou -200)"
+                  value={pointsAmount}
+                  onChange={(e) => setPointsAmount(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <input
+                  type="text"
+                  placeholder="Motif obligatoire (support client)"
+                  value={pointsReason}
+                  onChange={(e) => setPointsReason(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <div className="flex gap-2">
+                  <button
+                    className="flex-1 py-2.5 bg-gray-100 text-sm font-medium text-gray-700 rounded-xl hover:bg-gray-200 transition-colors cursor-pointer"
+                    onClick={() => setPointsModal(false)}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    disabled={pointsLoading || !pointsAmount || !pointsReason}
+                    className="flex-1 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors cursor-pointer"
+                    onClick={async () => {
+                      const amt = parseInt(pointsAmount, 10);
+                      if (isNaN(amt) || amt === 0 || !pointsReason.trim()) return;
+                      setPointsLoading(true);
+                      try {
+                        const res = await adminApi.adjustUserPoints(selectedUser.id, amt, pointsReason.trim());
+                        alert(`Solde mis à jour : ${res.balance} pts`);
+                        setPointsModal(false);
+                      } catch (e: any) {
+                        alert(e.message || 'Erreur');
+                      } finally {
+                        setPointsLoading(false);
+                      }
+                    }}
+                  >
+                    {pointsLoading ? '...' : 'Confirmer'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Save, RotateCcw, DollarSign, Car, Zap, Package, Clock, Globe, Plus, Trash2, ChevronRight, Star } from 'lucide-react';
+import { Save, RotateCcw, DollarSign, Car, Zap, Package, Clock, Globe, Plus, Trash2, ChevronRight, Star, Settings2, Radio, Mail, X } from 'lucide-react';
 import { adminApi } from '../services/api';
 
 interface VehicleTariff {
@@ -485,7 +485,334 @@ function TariffForm({
   );
 }
 
+// Keys shown in the AppSettings panel, grouped by category
+const APP_SETTING_GROUPS: Array<{ label: string; keys: Array<{ key: string; label: string; hint?: string }> }> = [
+  {
+    label: 'Dispatch & Proximité',
+    keys: [
+      { key: 'proximity_radius_km',          label: 'Rayon proximité (km)',              hint: 'Rayon de recherche chauffeur' },
+      { key: 'proximity_radius_extended_km', label: 'Rayon étendu (km)',                 hint: 'Si pas assez de chauffeurs' },
+      { key: 'min_driver_score',             label: 'Score chauffeur minimum',           hint: 'Ex: 4.0' },
+      { key: 'dispatch_global_limit',        label: 'Nb chauffeurs notifiés en parallèle' },
+    ],
+  },
+  {
+    label: 'Timeouts & Timings',
+    keys: [
+      { key: 'booking_assignment_timeout_min', label: 'Timeout assignation (min)' },
+      { key: 'passenger_confirm_timeout_min',  label: 'Timeout confirmation passager (min)' },
+    ],
+  },
+  {
+    label: 'OTP & Canaux',
+    keys: [
+      { key: 'otp_channel',        label: 'Canal OTP',           hint: 'sms | email | both' },
+      { key: 'otp_expiry_minutes', label: 'Expiration OTP (min)' },
+    ],
+  },
+  {
+    label: 'Vols',
+    keys: [
+      { key: 'flight_sync_window_hours', label: 'Fenêtre sync vols (h)' },
+      { key: 'flight_batch_size',        label: 'Taille batch sync vols' },
+    ],
+  },
+  {
+    label: 'Mode Test OTP',
+    keys: [
+      { key: 'test_mode_enabled', label: 'Activer le mode test', hint: 'true | false — DÉSACTIVER EN PRODUCTION' },
+      { key: 'test_otp_value',    label: 'Code OTP fixe',        hint: 'Ex: 123456 — utilisé si test_mode_enabled=true' },
+    ],
+  },
+];
+
+const SMS_PROVIDERS = ['mock', 'twilio', 'orange-cm', 'africas-talking'] as const;
+type SmsProvider = typeof SMS_PROVIDERS[number];
+
+const PROVIDER_LABELS: Record<SmsProvider, string> = {
+  mock:               'Mock (dev)',
+  twilio:             'Twilio',
+  'orange-cm':        'Orange CM',
+  'africas-talking':  "Africa's Talking",
+};
+
+function SmsRoutingPanel() {
+  const [rules, setRules]               = useState<{ prefix: string; provider: string }[]>([]);
+  const [defaultProvider, setDefault]   = useState<string>('mock');
+  const [available, setAvailable]       = useState<string[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [saving, setSaving]             = useState(false);
+  const [saved, setSaved]               = useState(false);
+  const [error, setError]               = useState('');
+  const [loadError, setLoadError]       = useState('');
+
+  useEffect(() => {
+    adminApi.getSmsRouting()
+      .then(data => {
+        setRules(data.rules);
+        setDefault(data.defaultProvider);
+        setAvailable(data.availableProviders);
+        setLoading(false);
+      })
+      .catch((err: Error) => {
+        setLoadError(err.message || 'Impossible de charger les règles SMS');
+        setLoading(false);
+      });
+  }, []);
+
+  const addRule = () => setRules(prev => [...prev, { prefix: '', provider: 'mock' }]);
+
+  const updateRule = (idx: number, field: 'prefix' | 'provider', value: string) =>
+    setRules(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+
+  const removeRule = (idx: number) => setRules(prev => prev.filter((_, i) => i !== idx));
+
+  const handleSave = async () => {
+    setError('');
+    const invalid = rules.find(r => !/^\+\d{1,4}$/.test(r.prefix));
+    if (invalid) { setError(`Préfixe invalide : "${invalid.prefix}" — format attendu : +237, +221, etc.`); return; }
+    setSaving(true);
+    try {
+      await adminApi.setSmsRouting(rules, defaultProvider);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de la sauvegarde');
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-24"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" /></div>;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+            <Radio className="w-5 h-5 text-blue-500" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">Routage SMS par pays</h2>
+            <p className="text-xs text-gray-500">Préfixe E.164 → provider — ex: +237 → orange-cm</p>
+          </div>
+        </div>
+        <button
+          onClick={handleSave} disabled={saving}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            saved ? 'bg-green-500 text-white' : 'bg-primary text-white hover:bg-primary/90'
+          } disabled:opacity-50`}
+        >
+          <Save className="w-4 h-4" />
+          {saved ? 'Sauvegardé ✓' : saving ? 'Sauvegarde…' : 'Sauvegarder'}
+        </button>
+      </div>
+
+      {loadError && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">Chargement impossible : {loadError}</p>}
+      {error && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+
+      <div className="space-y-2 mb-4">
+        {/* Header */}
+        <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-xs font-medium text-gray-500 px-1">
+          <span>Préfixe pays</span><span>Provider SMS</span><span />
+        </div>
+
+        {rules.map((rule, idx) => (
+          <div key={idx} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+            <input
+              type="text" placeholder="+237"
+              value={rule.prefix}
+              onChange={e => updateRule(idx, 'prefix', e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+            />
+            <select
+              value={rule.provider}
+              onChange={e => updateRule(idx, 'provider', e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              {(available.length ? available : [...SMS_PROVIDERS]).map((p: string) => (
+                <option key={p} value={p}>{PROVIDER_LABELS[p as SmsProvider] ?? p}</option>
+              ))}
+            </select>
+            <button onClick={() => removeRule(idx)} className="p-2 text-gray-400 hover:text-red-500 transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
+        <button
+          onClick={addRule}
+          className="flex items-center gap-2 text-sm text-primary hover:underline font-medium"
+        >
+          <Plus className="w-4 h-4" /> Ajouter une règle
+        </button>
+        <span className="text-gray-300">|</span>
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <span className="font-medium">Provider par défaut :</span>
+          <select
+            value={defaultProvider}
+            onChange={e => setDefault(e.target.value)}
+            className="border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          >
+            {(available.length ? available : [...SMS_PROVIDERS]).map((p: string) => (
+              <option key={p} value={p}>{PROVIDER_LABELS[p as SmsProvider] ?? p}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmailProviderPanel() {
+  const [provider, setProvider]   = useState('mock');
+  const [saving, setSaving]       = useState(false);
+  const [saved, setSaved]         = useState(false);
+  const [loading, setLoading]     = useState(true);
+
+  useEffect(() => {
+    adminApi.getEmailProvider().then(d => { setProvider(d.provider); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await adminApi.setEmailProvider(provider);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch { /* ignore */ } finally { setSaving(false); }
+  };
+
+  if (loading) return null;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center">
+            <Mail className="w-5 h-5 text-purple-500" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">Fournisseur email</h2>
+            <p className="text-xs text-gray-500">Provider utilisé pour l'envoi d'emails OTP</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <select
+            value={provider}
+            onChange={e => setProvider(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          >
+            <option value="mock">Mock (dev)</option>
+            <option value="sendgrid">SendGrid</option>
+            <option value="smtp">SMTP personnalisé</option>
+          </select>
+          <button
+            onClick={handleSave} disabled={saving}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              saved ? 'bg-green-500 text-white' : 'bg-primary text-white hover:bg-primary/90'
+            } disabled:opacity-50`}
+          >
+            <Save className="w-4 h-4" />
+            {saved ? '✓' : saving ? '…' : 'Sauvegarder'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppSettingsPanel() {
+  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [edited, setEdited] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adminApi.getAppSettings().then(data => {
+      setSettings(data);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  const getValue = (key: string) => edited[key] ?? settings[key] ?? '';
+
+  const handleChange = (key: string, value: string) => {
+    setEdited(prev => ({ ...prev, [key]: value }));
+    setSaved(prev => ({ ...prev, [key]: false }));
+  };
+
+  const handleSave = async (key: string) => {
+    const value = getValue(key);
+    setSaving(prev => ({ ...prev, [key]: true }));
+    try {
+      await adminApi.setAppSetting(key, value);
+      setSettings(prev => ({ ...prev, [key]: value }));
+      setEdited(prev => { const n = { ...prev }; delete n[key]; return n; });
+      setSaved(prev => ({ ...prev, [key]: true }));
+      setTimeout(() => setSaved(prev => ({ ...prev, [key]: false })), 2000);
+    } catch { /* ignore */ } finally {
+      setSaving(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-32"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" /></div>;
+
+  return (
+    <div className="space-y-6">
+      {APP_SETTING_GROUPS.map(group => (
+        <div key={group.label} className="bg-white rounded-2xl border border-gray-200 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center">
+              <Settings2 className="w-5 h-5 text-slate-500" />
+            </div>
+            <h2 className="font-semibold text-gray-900">{group.label}</h2>
+          </div>
+          <div className="space-y-3">
+            {group.keys.map(({ key, label, hint }) => {
+              const isDirty = key in edited;
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      {label}
+                      {hint && <span className="text-gray-400 font-normal ml-1">— {hint}</span>}
+                    </label>
+                    <input
+                      type="text"
+                      value={getValue(key)}
+                      onChange={e => handleChange(key, e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleSave(key)}
+                    disabled={saving[key] || !isDirty}
+                    className={`mt-5 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      saved[key]
+                        ? 'bg-green-50 text-green-600'
+                        : isDirty
+                        ? 'bg-primary text-white hover:bg-primary-dark'
+                        : 'bg-gray-100 text-gray-400 cursor-default'
+                    }`}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {saved[key] ? '✓' : saving[key] ? '…' : 'OK'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function TariffsPage() {
+  const [activeTab, setActiveTab] = useState<'tariffs' | 'settings'>('tariffs');
   // null = tarifs globaux, string = pays sélectionné
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [countries, setCountries] = useState<string[]>([]);
@@ -583,11 +910,34 @@ export function TariffsPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Tarifs & Configuration</h1>
-        <p className="text-sm text-gray-500 mt-1">Configurez les prix par pays — chaque marché a ses propres tarifs</p>
+      <div className="mb-6 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Tarifs & Configuration</h1>
+          <p className="text-sm text-gray-500 mt-1">Configurez les prix par pays et les paramètres dynamiques</p>
+        </div>
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+          <button
+            onClick={() => setActiveTab('tariffs')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'tariffs' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Tarifs
+          </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <span className="flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" />Paramètres</span>
+          </button>
+        </div>
       </div>
 
+      {activeTab === 'settings' ? (
+        <div className="space-y-6">
+          <SmsRoutingPanel />
+          <EmailProviderPanel />
+          <AppSettingsPanel />
+        </div>
+      ) : (
       <div className="flex gap-6">
         {/* Sidebar : liste des pays */}
         <div className="w-56 flex-shrink-0">
@@ -698,6 +1048,7 @@ export function TariffsPage() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

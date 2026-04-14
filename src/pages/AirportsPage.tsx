@@ -325,7 +325,7 @@ export function AirportsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Pays (ISO Code)</label>
+                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Code pays (ISO)</label>
                   <div className="relative">
                     <input
                       required
@@ -338,6 +338,17 @@ export function AirportsPage() {
                     <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
                   </div>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Nom du pays</label>
+                <input
+                  required
+                  placeholder="Cameroun"
+                  value={editingAirport?.country || ''}
+                  onChange={(e) => setEditingAirport(p => ({ ...p, country: e.target.value }))}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-6 bg-primary/5 p-4 rounded-2xl border border-primary/10">

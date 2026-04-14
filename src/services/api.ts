@@ -180,6 +180,46 @@ class AdminApiClient {
     });
   }
 
+  // AppSettings dynamiques
+  async getAppSettings() {
+    return this.request<Record<string, string>>('/admin/settings');
+  }
+
+  async setAppSetting(key: string, value: string) {
+    return this.request<void>('/admin/settings/key', {
+      method: 'PATCH',
+      body: { key, value },
+    });
+  }
+
+  // SMS Routing
+  async getSmsRouting() {
+    return this.request<{
+      rules: { prefix: string; provider: string }[];
+      defaultProvider: string;
+      availableProviders: string[];
+    }>('/admin/settings/sms-routing');
+  }
+
+  async setSmsRouting(rules: { prefix: string; provider: string }[], defaultProvider: string) {
+    return this.request<void>('/admin/settings/sms-routing', {
+      method: 'PUT',
+      body: { rules, defaultProvider },
+    });
+  }
+
+  // Email provider
+  async getEmailProvider() {
+    return this.request<{ provider: string; availableProviders: string[] }>('/admin/settings/email-provider');
+  }
+
+  async setEmailProvider(provider: string) {
+    return this.request<void>('/admin/settings/email-provider', {
+      method: 'PUT',
+      body: { provider },
+    });
+  }
+
   // Promos
   async getPromos(page = 1, limit = 20) {
     return this.request<{
@@ -268,6 +308,139 @@ class AdminApiClient {
   async updateDriverProfile(driverId: string, data: { driverType?: string; consigneEnabled?: boolean }) {
     return this.request<any>(`/admin/drivers/${driverId}/profile`, { method: 'PATCH', body: data });
   }
+
+  async suspendDriver(driverId: string, action: 'suspend' | 'reactivate') {
+    return this.request<any>(`/admin/drivers/${driverId}/suspend`, { method: 'PATCH', body: { action } });
+  }
+
+  async updateUserStatus(userId: string, status: 'active' | 'suspended') {
+    return this.request<any>(`/admin/users/${userId}/status`, { method: 'PATCH', body: { status } });
+  }
+
+  async adjustUserPoints(userId: string, amount: number, reason: string) {
+    return this.request<{ balance: number }>(`/admin/users/${userId}/points`, {
+      method: 'POST',
+      body: { amount, reason },
+    });
+  }
+
+  // Withdrawals
+  async getWithdrawals(params: { status?: string; page?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.status) qs.append('status', params.status);
+    if (params.page)   qs.append('page',   String(params.page));
+    return this.request<{
+      data: any[];
+      pagination: { total: number; page: number; limit: number; totalPages: number };
+    }>(`/admin/withdrawals${qs.toString() ? `?${qs}` : ''}`);
+  }
+
+  async processWithdrawal(id: string, status: 'approved' | 'rejected' | 'paid', adminNote?: string) {
+    return this.request<any>(`/admin/withdrawals/${id}`, {
+      method: 'PATCH',
+      body: { status, adminNote },
+    });
+  }
+
+  // Monitoring
+  async getActiveBookings() {
+    return this.request<any[]>('/admin/bookings/active');
+  }
+
+  async getOnlineDrivers() {
+    return this.request<any[]>('/admin/drivers/online');
+  }
+
+  // Analytics
+  async getRevenueMetrics(period: 'day' | 'week' | 'month' = 'day') {
+    return this.request<{
+      period: string;
+      from: string;
+      to: string;
+      totalRides: number;
+      totalRevenue: number;
+      byType: Record<string, { count: number; revenue: number }>;
+    }>(`/admin/metrics/revenue?period=${period}`);
+  }
+
+  // Tariff snapshots
+  async getTariffSnapshots() {
+    return this.request<{ id: string; countryCode: string | null; createdAt: string }[]>(
+      '/admin/settings/tariffs/snapshots',
+    );
+  }
+
+  async rollbackTariffs(snapshotId: string) {
+    return this.request<any>(`/admin/settings/tariffs/rollback/${snapshotId}`, { method: 'POST' });
+  }
+
+  // RBAC — My permissions
+  async getMyPermissions() {
+    return this.request<string[]>('/admin/me/permissions');
+  }
+
+  // RBAC — Permissions list
+  async getPermissions() {
+    return this.request<{ id: string; key: string; group: string; description: string }[]>(
+      '/admin/permissions',
+    );
+  }
+
+  // RBAC — Admins
+  async getAdmins(page = 1, limit = 20) {
+    return this.request<{
+      data: AdminUser[];
+      pagination: { total: number; page: number; limit: number; totalPages: number };
+    }>(`/admin/admins?page=${page}&limit=${limit}`);
+  }
+
+  async getAdminById(id: string) {
+    return this.request<any>(`/admin/admins/${id}`);
+  }
+
+  async createAdmin(dto: { name: string; phone: string; email?: string; roleId?: string }) {
+    return this.request<any>('/admin/admins', { method: 'POST', body: dto });
+  }
+
+  async updateAdmin(id: string, dto: { name?: string; email?: string; status?: string }) {
+    return this.request<any>(`/admin/admins/${id}`, { method: 'PATCH', body: dto });
+  }
+
+  async deleteAdmin(id: string) {
+    return this.request<any>(`/admin/admins/${id}`, { method: 'DELETE' });
+  }
+
+  async assignRole(userId: string, roleId: string) {
+    return this.request<any>(`/admin/admins/${userId}/roles`, { method: 'POST', body: { roleId } });
+  }
+
+  async removeRole(userId: string, roleId: string) {
+    return this.request<any>(`/admin/admins/${userId}/roles/${roleId}`, { method: 'DELETE' });
+  }
+
+  // RBAC — Roles
+  async getRoles() {
+    return this.request<AdminRole[]>('/admin/roles');
+  }
+
+  async createRole(dto: { name: string; label: string; description?: string; permissionKeys?: string[] }) {
+    return this.request<AdminRole>('/admin/roles', { method: 'POST', body: dto });
+  }
+
+  async updateRole(id: string, dto: { label?: string; description?: string }) {
+    return this.request<AdminRole>(`/admin/roles/${id}`, { method: 'PATCH', body: dto });
+  }
+
+  async deleteRole(id: string) {
+    return this.request<any>(`/admin/roles/${id}`, { method: 'DELETE' });
+  }
+
+  async setRolePermissions(roleId: string, permissionKeys: string[]) {
+    return this.request<any>(`/admin/roles/${roleId}/permissions`, {
+      method: 'PATCH',
+      body: { permissionKeys },
+    });
+  }
 }
 
 export interface AuditLog {
@@ -292,6 +465,25 @@ export interface PromoCode {
   isActive: boolean;
   usagePerUser: boolean;
   createdAt: string;
+}
+
+export interface AdminUser {
+  id: string;
+  name: string | null;
+  phone: string;
+  email: string | null;
+  status: string;
+  createdAt: string;
+  adminRoles?: { role: { id: string; name: string; label: string } }[];
+}
+
+export interface AdminRole {
+  id: string;
+  name: string;
+  label: string;
+  description: string | null;
+  isSystem: boolean;
+  rolePerms?: { permission: { id: string; key: string; group: string; description: string } }[];
 }
 
 export interface Airport {
