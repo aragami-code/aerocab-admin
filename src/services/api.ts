@@ -62,6 +62,10 @@ class AdminApiClient {
     }>('/admin/stats');
   }
 
+  async getChartData() {
+    return this.request<{ day: string; courses: number; revenus: number }[]>('/admin/chart-data');
+  }
+
   // Drivers
   async getDrivers(params?: { status?: string; page?: number; limit?: number }) {
     const q = new URLSearchParams();
@@ -132,10 +136,38 @@ class AdminApiClient {
     }>(`/admin/reports${qs ? `?${qs}` : ''}`);
   }
 
-  async resolveReport(id: string, action: 'resolved' | 'dismissed') {
+  async getReportById(id: string) {
+    return this.request<any>(`/reports/${id}/admin`);
+  }
+
+  async addReportMessage(id: string, message: string, imageUrl?: string) {
+    return this.request<any>(`/reports/${id}/messages`, {
+      method: 'POST',
+      body: { message, imageUrl },
+    });
+  }
+
+  async uploadTicketImage(file: File): Promise<{ url: string }> {
+    const token = this.getToken();
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${this.baseUrl}/uploads/ticket-image`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Échec upload image');
+    return res.json();
+  }
+
+  async reopenReport(id: string) {
+    return this.request<any>(`/reports/${id}/reopen`, { method: 'PATCH' });
+  }
+
+  async resolveReport(id: string, action: 'resolved' | 'dismissed', resolution?: string) {
     return this.request<{ message: string }>(`/reports/${id}/resolve`, {
       method: 'PATCH',
-      body: { status: action },
+      body: { status: action, resolution },
     });
   }
 
@@ -201,10 +233,78 @@ class AdminApiClient {
     }>('/admin/settings/sms-routing');
   }
 
-  async setSmsRouting(rules: { prefix: string; provider: string }[], defaultProvider: string) {
+  async setSmsRouting(payload: { rules: { prefix: string; provider: string }[]; defaultProvider: string }) {
     return this.request<void>('/admin/settings/sms-routing', {
       method: 'PUT',
-      body: { rules, defaultProvider },
+      body: payload,
+    });
+  }
+
+  // Credentials SMS/Email
+  async getCredentials() {
+    return this.request<{ status: Record<string, boolean> }>('/admin/settings/credentials');
+  }
+
+  async setCredentials(payload: Record<string, string>) {
+    return this.request<{ success: boolean; updated: string[] }>('/admin/settings/credentials', {
+      method: 'PUT',
+      body: payload,
+    });
+  }
+
+  // Maps Key
+  async getMapsKey() {
+    return this.request<{ configured: boolean; maskedKey: string }>('/admin/settings/maps-key');
+  }
+
+  async setMapsKey(key: string) {
+    return this.request<{ success: boolean }>('/admin/settings/maps-key', {
+      method: 'PUT',
+      body: { key },
+    });
+  }
+
+  async getUserDetail(userId: string) {
+    return this.request<any>(`/admin/users/${userId}/detail`);
+  }
+
+  async getSettings() {
+    return this.request<Record<string, string>>('/admin/settings');
+  }
+
+  async setSetting(key: string, value: string) {
+    return this.request<{ key: string; value: string }>('/admin/settings/key', {
+      method: 'PATCH',
+      body: { key, value },
+    });
+  }
+
+  // Test Mode
+  async getTestMode() {
+    return this.request<{
+      testModeEnabled: boolean;
+      testOtpValue: string;
+      otpLogEnabled: boolean;
+      otpChannel: string;
+      smsDefaultProvider: string;
+      emailProvider: string;
+      availableSmsProviders: string[];
+      availableEmailProviders: string[];
+      availableOtpChannels: string[];
+    }>('/admin/settings/test-mode');
+  }
+
+  async setTestMode(payload: {
+    testModeEnabled: boolean;
+    testOtpValue?: string;
+    otpLogEnabled?: boolean;
+    otpChannel?: string;
+    smsDefaultProvider?: string;
+    emailProvider?: string;
+  }) {
+    return this.request<{ success: boolean }>('/admin/settings/test-mode', {
+      method: 'PUT',
+      body: payload,
     });
   }
 
@@ -305,6 +405,10 @@ class AdminApiClient {
     return this.request<any>(`/admin/bookings/${bookingId}/cancel`, { method: 'PATCH' });
   }
 
+  async getBookingRatings(bookingId: string) {
+    return this.request<{ ratings: any[] }>(`/admin/bookings/${bookingId}/ratings`);
+  }
+
   async updateDriverProfile(driverId: string, data: { driverType?: string; consigneEnabled?: boolean }) {
     return this.request<any>(`/admin/drivers/${driverId}/profile`, { method: 'PATCH', body: data });
   }
@@ -340,6 +444,31 @@ class AdminApiClient {
       method: 'PATCH',
       body: { status, adminNote },
     });
+  }
+
+  async getWithdrawalStats() {
+    return this.request<{
+      total: number;
+      byStatus: { pending: number; approved: number; paid: number; rejected: number };
+      totalPaidAmount: number;
+    }>('/admin/withdrawals/stats');
+  }
+
+  async downloadCsv(endpoint: string, filename: string) {
+    const token = this.getToken();
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error('Erreur export CSV');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // Monitoring

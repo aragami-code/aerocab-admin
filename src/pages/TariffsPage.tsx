@@ -573,7 +573,7 @@ function SmsRoutingPanel() {
     if (invalid) { setError(`Préfixe invalide : "${invalid.prefix}" — format attendu : +237, +221, etc.`); return; }
     setSaving(true);
     try {
-      await adminApi.setSmsRouting(rules, defaultProvider);
+      await adminApi.setSmsRouting({ rules, defaultProvider });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e: any) {
