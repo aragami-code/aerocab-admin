@@ -16,6 +16,9 @@ import {
   UserCog,
   Shield,
   Banknote,
+  Settings,
+  ToggleLeft,
+  MapPin,
 } from 'lucide-react';
 import { useAdminAuthStore } from '../stores/authStore';
 import { usePermission } from './Can';
@@ -38,12 +41,15 @@ const navItems: NavItem[] = [
   { path: '/reports',     label: 'Signalements',      icon: AlertTriangle,    section: 'main', permission: 'view_reports' },
   { path: '/tariffs',     label: 'Tarifs & Points',   icon: SlidersHorizontal,section: 'main', permission: 'view_tariffs' },
   { path: '/airports',    label: 'Aéroports',         icon: Plane,            section: 'main', permission: 'view_airports' },
+  { path: '/forfaits',    label: 'Forfaits trajet',   icon: MapPin,           section: 'main', permission: 'view_tariffs' },
   { path: '/promos',      label: 'Codes Promo',       icon: Tag,              section: 'main', permission: 'view_promos' },
   { path: '/referrals',   label: 'Parrainage',        icon: Share2,           section: 'main', permission: 'view_referrals' },
   { path: '/withdrawals', label: 'Retraits',          icon: Banknote,         section: 'main', permission: 'view_withdrawals' },
   { path: '/audit',       label: 'Journal d\'audit',  icon: ClipboardList,    section: 'main', permission: 'view_audit_logs' },
-  { path: '/admins',      label: 'Administrateurs',   icon: UserCog,          section: 'admin', permission: 'view_admins' },
-  { path: '/roles',       label: 'Rôles',             icon: Shield,           section: 'admin', permission: 'view_roles' },
+  { path: '/admins',        label: 'Administrateurs',   icon: UserCog,     section: 'admin', permission: 'view_admins' },
+  { path: '/roles',         label: 'Rôles',             icon: Shield,      section: 'admin', permission: 'view_roles' },
+  { path: '/feature-flags', label: 'Feature Flags',     icon: ToggleLeft,  section: 'admin', permission: 'manage_feature_flags' },
+  { path: '/settings',      label: 'Configuration',     icon: Settings,    section: 'admin', permission: 'edit_settings' },
 ];
 
 function NavItemComponent({ item, location }: { item: NavItem; location: any }) {
