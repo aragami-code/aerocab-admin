@@ -279,6 +279,35 @@ class AdminApiClient {
     });
   }
 
+  // Annonces
+  async listAnnouncements() {
+    return this.request<any[]>('/admin/announcements');
+  }
+
+  async createAnnouncement(data: any) {
+    return this.request('/admin/announcements', { method: 'POST', body: data });
+  }
+
+  async updateAnnouncement(id: string, data: any) {
+    return this.request(`/admin/announcements/${id}`, { method: 'PATCH', body: data });
+  }
+
+  async deleteAnnouncement(id: string) {
+    return this.request(`/admin/announcements/${id}`, { method: 'DELETE' });
+  }
+
+  async getAnnouncementStats(id: string) {
+    return this.request<{ views: number }>(`/admin/announcements/${id}/stats`);
+  }
+
+  async getAppVersion() {
+    return this.request<Record<string, string>>('/admin/app-version');
+  }
+
+  async setAppVersion(data: Record<string, string>) {
+    return this.request('/admin/app-version', { method: 'PATCH', body: data });
+  }
+
   // Test Mode
   async getTestMode() {
     return this.request<{
