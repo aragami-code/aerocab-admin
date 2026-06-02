@@ -20,6 +20,7 @@ import { WithdrawalsPage } from './pages/WithdrawalsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { FeatureFlagsPage } from './pages/FeatureFlagsPage';
 import { LoginPage } from './pages/LoginPage';
+import { AnnoncesPage } from './pages/AnnoncesPage';
 import { useAdminAuthStore } from './stores/authStore';
 import { usePermissionsStore } from './stores/permissionsStore';
 
@@ -93,6 +94,7 @@ export default function App() {
         <Route path="/roles"       element={<PermissionRoute permission="view_roles"><RolesPage /></PermissionRoute>} />
         <Route path="/settings"       element={<PermissionRoute permission="edit_settings"><SettingsPage /></PermissionRoute>} />
         <Route path="/feature-flags"  element={<PermissionRoute permission="manage_feature_flags"><FeatureFlagsPage /></PermissionRoute>} />
+        <Route path="/annonces"       element={<PermissionRoute permission="manage_announcements"><AnnoncesPage /></PermissionRoute>} />
       </Route>
     </Routes>
   );
