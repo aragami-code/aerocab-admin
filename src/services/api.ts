@@ -212,6 +212,14 @@ class AdminApiClient {
     });
   }
 
+  // Operated countries
+  async listOperatedCountries() { return this.request<any[]>('/admin/countries'); }
+  async getCountryReadiness(code: string) { return this.request<{ ready: boolean; missing: string[] }>(`/admin/countries/${code}/readiness`); }
+  async createOperatedCountry(data: any) { return this.request('/admin/countries', { method: 'POST', body: data }); }
+  async activateCountry(code: string) { return this.request(`/admin/countries/${code}/activate`, { method: 'PATCH' }); }
+  async suspendCountry(code: string) { return this.request(`/admin/countries/${code}/suspend`, { method: 'PATCH' }); }
+  async setDefaultCountry(code: string) { return this.request(`/admin/countries/${code}/default`, { method: 'PATCH' }); }
+
   // AppSettings dynamiques
   async getAppSettings() {
     return this.request<Record<string, string>>('/admin/settings');

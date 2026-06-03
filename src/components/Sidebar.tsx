@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAdminAuthStore } from '../stores/authStore';
 import { usePermission } from './Can';
+import { CountrySelector } from './CountrySelector';
 
 interface NavItem {
   path: string;
@@ -113,6 +114,10 @@ export function Sidebar() {
             </h1>
             <p className="text-xs text-white/50 font-medium">Administration</p>
           </div>
+        </div>
+        {/* Country selector */}
+        <div className="mt-4">
+          <CountrySelector />
         </div>
       </div>
 

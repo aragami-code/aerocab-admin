@@ -21,6 +21,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { FeatureFlagsPage } from './pages/FeatureFlagsPage';
 import { LoginPage } from './pages/LoginPage';
 import { AnnoncesPage } from './pages/AnnoncesPage';
+import { CountryProvider } from './contexts/CountryContext';
 import { useAdminAuthStore } from './stores/authStore';
 import { usePermissionsStore } from './stores/permissionsStore';
 
@@ -65,6 +66,7 @@ export default function App() {
   }, [isAuthenticated, loadPermissions, clearPermissions]);
 
   return (
+    <CountryProvider>
     <Routes>
       <Route path="/login" element={
         <AuthGuard><LoginPage /></AuthGuard>
@@ -97,5 +99,6 @@ export default function App() {
         <Route path="/annonces"       element={<PermissionRoute permission="manage_announcements"><AnnoncesPage /></PermissionRoute>} />
       </Route>
     </Routes>
+    </CountryProvider>
   );
 }
