@@ -20,6 +20,7 @@ import {
   ToggleLeft,
   MapPin,
   Megaphone,
+  Globe,
 } from 'lucide-react';
 import { useAdminAuthStore } from '../stores/authStore';
 import { usePermission } from './Can';
@@ -53,6 +54,7 @@ const navItems: NavItem[] = [
   { path: '/feature-flags', label: 'Feature Flags',     icon: ToggleLeft,  section: 'admin', permission: 'manage_feature_flags' },
   { path: '/settings',      label: 'Configuration',     icon: Settings,    section: 'admin', permission: 'edit_settings' },
   { path: '/annonces',      label: 'Annonces',          icon: Megaphone,   section: 'admin', permission: 'manage_announcements' },
+  { path: '/pays',          label: 'Pays',              icon: Globe,       section: 'admin', permission: 'manage_countries' },
 ];
 
 function NavItemComponent({ item, location }: { item: NavItem; location: any }) {

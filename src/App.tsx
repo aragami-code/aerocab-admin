@@ -21,6 +21,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { FeatureFlagsPage } from './pages/FeatureFlagsPage';
 import { LoginPage } from './pages/LoginPage';
 import { AnnoncesPage } from './pages/AnnoncesPage';
+import { PaysPage } from './pages/PaysPage';
 import { CountryProvider } from './contexts/CountryContext';
 import { useAdminAuthStore } from './stores/authStore';
 import { usePermissionsStore } from './stores/permissionsStore';
@@ -97,6 +98,7 @@ export default function App() {
         <Route path="/settings"       element={<PermissionRoute permission="edit_settings"><SettingsPage /></PermissionRoute>} />
         <Route path="/feature-flags"  element={<PermissionRoute permission="manage_feature_flags"><FeatureFlagsPage /></PermissionRoute>} />
         <Route path="/annonces"       element={<PermissionRoute permission="manage_announcements"><AnnoncesPage /></PermissionRoute>} />
+        <Route path="/pays"           element={<PermissionRoute permission="manage_countries"><PaysPage /></PermissionRoute>} />
       </Route>
     </Routes>
     </CountryProvider>
