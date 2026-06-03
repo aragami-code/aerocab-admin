@@ -51,7 +51,8 @@ class AdminApiClient {
   }
 
   // Stats
-  async getStats() {
+  async getStats(country?: string) {
+    const qs = country ? `?country=${encodeURIComponent(country)}` : '';
     return this.request<{
       totalUsers: number;
       totalDrivers: number;
@@ -59,11 +60,12 @@ class AdminApiClient {
       approvedDrivers: number;
       activeAccessPasses: number;
       totalRevenue: number;
-    }>('/admin/stats');
+    }>(`/admin/stats${qs}`);
   }
 
-  async getChartData() {
-    return this.request<{ day: string; courses: number; revenus: number }[]>('/admin/chart-data');
+  async getChartData(country?: string) {
+    const qs = country ? `?country=${encodeURIComponent(country)}` : '';
+    return this.request<{ day: string; courses: number; revenus: number }[]>(`/admin/chart-data${qs}`);
   }
 
   // Drivers

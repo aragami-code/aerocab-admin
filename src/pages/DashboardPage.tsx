@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Car,
   Users,
@@ -25,6 +25,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { adminApi } from '../services/api';
+import { useCountry } from '../contexts/CountryContext';
 
 interface Stats {
   totalUsers: number;
@@ -79,18 +80,16 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeMetric, setActiveMetric] = useState<'courses' | 'revenus'>('courses');
+  const { selected } = useCountry();
+  const countryParam = selected === 'GLOBAL' ? undefined : selected;
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
       const [statsData, chart, reports, wStats] = await Promise.all([
-        adminApi.getStats(),
-        adminApi.getChartData(),
+        adminApi.getStats(countryParam),
+        adminApi.getChartData(countryParam),
         Promise.all([
           adminApi.getReports({ status: 'open', limit: 5 }).catch(() => ({ data: [] })),
           adminApi.getReports({ status: 'investigating', limit: 5 }).catch(() => ({ data: [] })),
@@ -106,7 +105,11 @@ export function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [countryParam]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (loading) {
     return (
