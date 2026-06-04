@@ -194,6 +194,14 @@ function Select({ value, onChange, options, disabled }: { value: string; onChang
 export function SettingsPage() {
   const { selected } = useCountry();
   const [config, setConfig] = useState<TestModeConfig | null>(null);
+  const [allSettingsRaw, setAllSettingsRaw] = useState<Record<string, string>>({});
+  const [otpConfig, setOtpConfig] = useState({
+    sms: true, whatsapp: false, email: true,
+    defaultChannel: 'sms',
+    whatsappProvider: 'mock',
+    ultramsgInstance: '', ultramsgToken: '',
+  });
+  const [otpSaving, setOtpSaving] = useState(false);
   const [smsRules, setSmsRules] = useState<SmsRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -320,6 +328,7 @@ export function SettingsPage() {
         adminApi.getTelephonyConfig(),
       ]);
       setTelephony(telephonyData);
+      setAllSettingsRaw(allSettings);
       setConfig(testMode);
       setSmsRules(smsRouting.rules);
       setMapsKey((prev) => ({ ...prev, ...mapsKeyData }));
@@ -395,6 +404,23 @@ export function SettingsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Recalcule la config OTP (scopée au pays sélectionné, fallback global)
+  // quand le pays change ou que les settings sont (re)chargés.
+  useEffect(() => {
+    const sfx = selected && selected !== 'GLOBAL' ? `:${selected}` : '';
+    const getS = (k: string, d: string) => allSettingsRaw[`${k}${sfx}`] ?? allSettingsRaw[k] ?? d;
+    const enabled = getS('otp_channels_enabled', 'sms,email').split(',').map((s) => s.trim());
+    setOtpConfig({
+      sms: enabled.includes('sms'),
+      whatsapp: enabled.includes('whatsapp'),
+      email: enabled.includes('email'),
+      defaultChannel: getS('otp_default_channel', 'sms'),
+      whatsappProvider: getS('whatsapp_provider', 'mock'),
+      ultramsgInstance: getS('whatsapp_ultramsg_instance', ''),
+      ultramsgToken: getS('whatsapp_ultramsg_token', ''),
+    });
+  }, [selected, allSettingsRaw]);
+
   const saveAll = async () => {
     if (!config) return;
     setSaving(true);
@@ -415,6 +441,41 @@ export function SettingsPage() {
       showToast('error', e.message || 'Erreur lors de la sauvegarde');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveOtp = async () => {
+    if (!otpConfig.sms && !otpConfig.whatsapp && !otpConfig.email) {
+      showToast('error', 'Au moins un canal OTP doit être activé');
+      return;
+    }
+    const sfx = selected && selected !== 'GLOBAL' ? `:${selected}` : '';
+    const channelsCsv = ['sms', 'whatsapp', 'email'].filter((c) => (otpConfig as any)[c]).join(',');
+    // Le canal par défaut doit faire partie des canaux activés
+    const defaultChannel = channelsCsv.split(',').includes(otpConfig.defaultChannel)
+      ? otpConfig.defaultChannel
+      : channelsCsv.split(',')[0];
+    setOtpSaving(true);
+    try {
+      await adminApi.setKey(`otp_channels_enabled${sfx}`, channelsCsv);
+      await adminApi.setKey(`otp_default_channel${sfx}`, defaultChannel);
+      await adminApi.setKey(`whatsapp_provider${sfx}`, otpConfig.whatsappProvider);
+      await adminApi.setKey(`whatsapp_ultramsg_instance${sfx}`, otpConfig.ultramsgInstance);
+      await adminApi.setKey(`whatsapp_ultramsg_token${sfx}`, otpConfig.ultramsgToken);
+      // Reflète les valeurs sauvegardées dans le cache local des settings
+      setAllSettingsRaw((prev) => ({
+        ...prev,
+        [`otp_channels_enabled${sfx}`]: channelsCsv,
+        [`otp_default_channel${sfx}`]: defaultChannel,
+        [`whatsapp_provider${sfx}`]: otpConfig.whatsappProvider,
+        [`whatsapp_ultramsg_instance${sfx}`]: otpConfig.ultramsgInstance,
+        [`whatsapp_ultramsg_token${sfx}`]: otpConfig.ultramsgToken,
+      }));
+      showToast('success', 'Canaux OTP mis à jour');
+    } catch (e: any) {
+      showToast('error', e.message || 'Erreur sauvegarde canaux OTP');
+    } finally {
+      setOtpSaving(false);
     }
   };
 
@@ -858,6 +919,95 @@ export function SettingsPage() {
             options={config.availableOtpChannels}
           />
         </FieldRow>
+      </Section>
+
+      {/* ── Section Canaux OTP (par pays) ───────────────────────────────────── */}
+      <Section
+        icon={MessageSquare}
+        title="Canaux OTP"
+        subtitle="Canaux de livraison du code OTP — scopés au pays sélectionné"
+      >
+        {/* Bannière pays */}
+        <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-xl bg-primary/5 border border-primary/15">
+          <Globe className="w-4 h-4 text-primary shrink-0" />
+          <p className="text-xs font-medium text-slate-600">
+            Pays : <span className="font-semibold text-slate-800">{selected === 'GLOBAL' ? 'Global (tous pays)' : selected}</span>
+          </p>
+        </div>
+
+        {/* Checkboxes canaux */}
+        <FieldRow label="Canaux activés" hint="Au moins un canal doit être actif">
+          <div className="flex items-center gap-4">
+            {([
+              { key: 'sms', label: 'SMS' },
+              { key: 'whatsapp', label: 'WhatsApp' },
+              { key: 'email', label: 'Email' },
+            ] as const).map(({ key, label }) => (
+              <label key={key} className="flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={(otpConfig as any)[key]}
+                  onChange={(e) => setOtpConfig((prev) => ({ ...prev, [key]: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </FieldRow>
+
+        {/* Canal par défaut */}
+        <FieldRow label="Canal par défaut" hint="Canal utilisé en priorité parmi ceux activés">
+          <Select
+            value={otpConfig.defaultChannel}
+            onChange={(v) => setOtpConfig((prev) => ({ ...prev, defaultChannel: v }))}
+            options={['sms', 'whatsapp', 'email'].filter((c) => (otpConfig as any)[c])}
+          />
+        </FieldRow>
+
+        {/* Provider WhatsApp */}
+        <FieldRow label="Provider WhatsApp" hint="mock = simulé · ultramsg = envoi réel via Ultramsg">
+          <Select
+            value={otpConfig.whatsappProvider}
+            onChange={(v) => setOtpConfig((prev) => ({ ...prev, whatsappProvider: v }))}
+            options={['mock', 'ultramsg']}
+          />
+        </FieldRow>
+
+        {/* Credentials Ultramsg */}
+        {otpConfig.whatsappProvider === 'ultramsg' && (
+          <>
+            <FieldRow label="Ultramsg — Instance" hint="ID d'instance Ultramsg (ex: instance12345)">
+              <input
+                type="text"
+                value={otpConfig.ultramsgInstance}
+                onChange={(e) => setOtpConfig((prev) => ({ ...prev, ultramsgInstance: e.target.value }))}
+                placeholder="instance12345"
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 w-64 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </FieldRow>
+            <FieldRow label="Ultramsg — Token" hint="Jeton d'API Ultramsg">
+              <input
+                type="password"
+                value={otpConfig.ultramsgToken}
+                onChange={(e) => setOtpConfig((prev) => ({ ...prev, ultramsgToken: e.target.value }))}
+                placeholder="••••••••••••"
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 w-64 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </FieldRow>
+          </>
+        )}
+
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={saveOtp}
+            disabled={otpSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-50"
+          >
+            {otpSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {otpSaving ? 'Sauvegarde…' : 'Enregistrer'}
+          </button>
+        </div>
       </Section>
 
       {/* ── Section Google Maps Key ─────────────────────────────────────────── */}
