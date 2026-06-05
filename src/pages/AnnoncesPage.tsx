@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Smartphone,
   ExternalLink,
+  Upload,
 } from 'lucide-react';
 import { adminApi } from '../services/api';
 
@@ -562,6 +563,21 @@ export function AnnoncesPage() {
   });
   const [versionLoaded, setVersionLoaded] = useState(false);
   const [versionSaving, setVersionSaving] = useState(false);
+  const [apkUploading, setApkUploading] = useState<Record<string, number | null>>({});
+
+  const handleApkUpload = async (key: string, file: File) => {
+    const app: 'passenger' | 'driver' = key.endsWith('driver') ? 'driver' : 'passenger';
+    setApkUploading((u) => ({ ...u, [key]: 0 }));
+    try {
+      const { url } = await adminApi.uploadApk(file, app, (pct) => setApkUploading((u) => ({ ...u, [key]: pct })));
+      setVersion((v) => ({ ...v, [key]: url }));
+      showToast('success', `APK ${app} uploadé — URL renseignée`);
+    } catch (e: any) {
+      showToast('error', e?.message || 'Échec upload APK');
+    } finally {
+      setApkUploading((u) => ({ ...u, [key]: null }));
+    }
+  };
 
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const showToast = (type: 'success' | 'error', msg: string) => {
@@ -843,6 +859,22 @@ export function AnnoncesPage() {
                               </a>
                             )}
                           </div>
+                          {isUrl && (
+                            <div className="mt-2 flex items-center gap-3">
+                              <label className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-primary rounded-lg hover:bg-primary-dark cursor-pointer">
+                                <Upload className="w-3.5 h-3.5" /> Uploader l'APK
+                                <input
+                                  type="file"
+                                  accept=".apk,application/vnd.android.package-archive"
+                                  className="hidden"
+                                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleApkUpload(key, f); e.currentTarget.value = ''; }}
+                                />
+                              </label>
+                              {apkUploading[key] != null && (
+                                <span className="text-xs text-slate-500">{apkUploading[key]}% …</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
