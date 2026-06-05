@@ -32,6 +32,7 @@ export function CountryWizard({ mode, initialCode, onClose, onChanged }: Props) 
   const [current, setCurrent] = useState(0);
   const [missing, setMissing] = useState<string[]>(['currency', 'payment_methods', 'tariffs', 'operated_airports']);
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [existingCodes, setExistingCodes] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === 'complete');
   // Étapes non bloquantes visitées (pour cocher leur pastille).
   const [visited, setVisited] = useState<Record<number, boolean>>({});
@@ -56,8 +57,11 @@ export function CountryWizard({ mode, initialCode, onClose, onChanged }: Props) 
       } else {
         // create mode
         try {
-          const s = await adminApi.getSettings();
-          if (active) setSettings(s ?? {});
+          const [s, list] = await Promise.all([adminApi.getSettings(), adminApi.listOperatedCountries()]);
+          if (active) {
+            setSettings(s ?? {});
+            setExistingCodes((list ?? []).map((c: any) => String(c.code).toUpperCase()));
+          }
         } catch {
           /* ignore */
         }
@@ -123,7 +127,7 @@ export function CountryWizard({ mode, initialCode, onClose, onChanged }: Props) 
     const stepId = STEPS[current];
     switch (stepId) {
       case 'infos':
-        return <StepInfos mode={mode} code={code} onCreated={handleCreated} onSaved={handleSaved} />;
+        return <StepInfos mode={mode} code={code} existingCodes={existingCodes} onCreated={handleCreated} onSaved={handleSaved} />;
       case 'payments':
         return <StepPayments code={code} settings={settings} onSaved={handleSaved} />;
       case 'tariffs':
