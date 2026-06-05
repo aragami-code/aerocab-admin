@@ -27,7 +27,6 @@ const EMPTY_FORM = {
   currencyDecimals: 0,
   phonePrefix: '',
   flagEmoji: '',
-  pointFxRate: 1,
 };
 
 export function PaysPage() {
@@ -88,7 +87,6 @@ export function PaysPage() {
         currencyDecimals: form.currencyDecimals,
         phonePrefix: form.phonePrefix.trim() || undefined,
         flagEmoji: form.flagEmoji.trim() || undefined,
-        pointFxRate: form.pointFxRate,
       });
       setForm(EMPTY_FORM);
       setShowForm(false);
@@ -253,15 +251,6 @@ export function PaysPage() {
                 value={form.flagEmoji}
                 onChange={e => setForm(f => ({ ...f, flagEmoji: e.target.value }))}
                 placeholder="🇨🇲"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Taux change point (pointFxRate)</label>
-              <input
-                type="number" min={0} step="0.0001"
-                value={form.pointFxRate}
-                onChange={e => setForm(f => ({ ...f, pointFxRate: +e.target.value }))}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
