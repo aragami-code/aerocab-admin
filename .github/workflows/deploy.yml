@@ -42,5 +42,5 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~
-            docker compose pull admin
-            docker compose up -d admin
+            docker-compose pull admin
+            docker-compose up -d admin
