@@ -1,46 +1,686 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
-  Car,
-  Search,
-  Clock,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  ShieldCheck,
-  ShieldX,
+  Car, Search, Clock, CheckCircle, XCircle, Loader2, AlertCircle,
+  ChevronLeft, ChevronRight, Eye, ShieldCheck, ShieldX, ArrowLeft,
+  FileText, AlertTriangle, User, MapPin, Phone, Mail, ExternalLink, X,
 } from 'lucide-react';
 import { adminApi } from '../services/api';
+import { PageStats } from '../components/PageStats';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 const statusConfig = {
-  approved: { label: 'Approuve', icon: CheckCircle, classes: 'text-emerald-600 bg-emerald-50' },
-  pending: { label: 'En attente', icon: Clock, classes: 'text-amber-600 bg-amber-50' },
-  rejected: { label: 'Rejete', icon: XCircle, classes: 'text-red-500 bg-red-50' },
-  suspended: { label: 'Suspendu', icon: XCircle, classes: 'text-gray-500 bg-gray-100' },
+  approved:  { label: 'Approuvé',    icon: CheckCircle, classes: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+  pending:   { label: 'En attente',  icon: Clock,       classes: 'text-amber-600 bg-amber-50 border-amber-200' },
+  rejected:  { label: 'Rejeté',      icon: XCircle,     classes: 'text-red-500 bg-red-50 border-red-200' },
+  suspended: { label: 'Suspendu',    icon: XCircle,     classes: 'text-gray-500 bg-gray-100 border-gray-200' },
 };
+
+const DOC_CONFIG: Record<string, { label: string; desc: string; kycKey: string }> = {
+  cni_front:           { label: 'CNI recto / verso',        desc: 'Nom lisible, photo visible',                    kycKey: 'Identité' },
+  cni_back:            { label: 'CNI verso',                desc: 'Dos de la carte',                               kycKey: 'Identité' },
+  passport:            { label: 'Passeport',                desc: 'Passeport en cours de validité',                kycKey: 'Identité' },
+  portrait:            { label: 'Photo portrait',           desc: 'Selfie face caméra, fond neutre',               kycKey: 'Selfie' },
+  selfie:              { label: 'Selfie avec CNI',          desc: 'Visage visible et cohérent',                    kycKey: 'Selfie' },
+  license:             { label: 'Permis de conduire',       desc: 'Validité et identité',                          kycKey: 'Permis' },
+  vtc_license:         { label: 'Autorisation VTC',         desc: 'Autorisation officielle de transport VTC',       kycKey: 'Permis' },
+  registration:        { label: 'Carte grise',              desc: 'Plaque et modèle cohérents',                    kycKey: 'Véhicule' },
+  vehicle_photo:       { label: 'Photo du véhicule',        desc: 'Vue extérieure claire',                         kycKey: 'Véhicule' },
+  insurance:           { label: 'Assurance',                desc: 'Attestation couvrant le transport de personnes', kycKey: 'Véhicule' },
+  technical_control:   { label: 'Contrôle technique',      desc: 'Contrôle technique en cours de validité',        kycKey: 'Véhicule' },
+  criminal_record:     { label: 'Casier judiciaire',        desc: 'Bulletin n°3 de moins de 3 mois',               kycKey: 'Casier' },
+  proof_of_address:    { label: 'Justificatif de domicile', desc: 'Facture ou relevé de moins de 3 mois',           kycKey: 'Autre' },
+  medical_certificate: { label: 'Certificat médical',       desc: 'Aptitude à la conduite',                        kycKey: 'Autre' },
+  vaccination_card:    { label: 'Carte de vaccination',     desc: 'Carnet de vaccination à jour',                   kycKey: 'Autre' },
+  border_pass:         { label: 'Laissez-passer frontalier',desc: 'Document frontalier valide',                     kycKey: 'Autre' },
+};
+
+const DOC_STATUS_BADGE: Record<string, string> = {
+  approved: 'bg-emerald-100 text-emerald-700',
+  rejected: 'bg-red-100 text-red-600',
+  pending:  'bg-amber-100 text-amber-700',
+};
+const DOC_STATUS_LABEL: Record<string, string> = {
+  approved: 'Vérifié', rejected: 'Rejeté', pending: 'À vérifier',
+};
+
+// ── Helper: ouvrir un document protégé ───────────────────────────────────────
+
+async function openProtectedDoc(fileUrl: string) {
+  const token = localStorage.getItem('admin_token');
+  const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/api$/, '');
+  const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${apiBase}${fileUrl}`;
+  const res = await fetch(fullUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error('Fichier introuvable');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+}
+
+// ── Composant : card document ─────────────────────────────────────────────────
+
+function DocCard({ doc, onApprove, onReject, required }: {
+  doc: any;
+  onApprove: () => void;
+  onReject: () => void;
+  required?: boolean;
+}) {
+  const cfg = DOC_CONFIG[doc.type] ?? { label: doc.type, desc: '', kycKey: '' };
+  const status = doc.status ?? 'pending';
+  const isImg = doc.fileUrl && !doc.fileUrl.endsWith('.pdf');
+  const [opening, setOpening] = useState(false);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; isPdf: boolean } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  useEffect(() => {
+    if (!isImg || !doc.fileUrl) return;
+    const token = localStorage.getItem('admin_token');
+    const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/api$/, '');
+    const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `${apiBase}${doc.fileUrl}`;
+    fetch(fullUrl, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => { if (blob) setThumbUrl(URL.createObjectURL(blob)); })
+      .catch(() => {});
+  }, [doc.fileUrl, isImg]);
+
+  const handlePreview = async () => {
+    if (!doc.fileUrl || loadingPreview) return;
+    try {
+      setLoadingPreview(true);
+      const token = localStorage.getItem('admin_token');
+      const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/api$/, '');
+      const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `${apiBase}${doc.fileUrl}`;
+      const res = await fetch(fullUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Fichier introuvable');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setPreview({ url, isPdf: doc.fileUrl.endsWith('.pdf') });
+    } catch (e: any) {
+      alert('Impossible de précharger le document : ' + e.message);
+    } finally {
+      setLoadingPreview(false); }
+  };
+
+  const handleOpen = async () => {
+    if (!doc.fileUrl) return;
+    try {
+      setOpening(true);
+      await openProtectedDoc(doc.fileUrl);
+    } catch (e: any) {
+      alert('Impossible d\'ouvrir le document : ' + e.message);
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Modal aperçu */}
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreview(null)}>
+          <div className="relative bg-white rounded-2xl overflow-hidden shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <p className="text-sm font-semibold text-gray-800">{cfg.label}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleOpen}
+                  disabled={opening}
+                  className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/30 px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors disabled:opacity-50"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Ouvrir
+                </button>
+                <button onClick={() => setPreview(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto bg-gray-50 min-h-0">
+              {preview.isPdf ? (
+                <iframe src={preview.url} className="w-full h-full min-h-[70vh]" title={cfg.label} />
+              ) : (
+                <img src={preview.url} alt={cfg.label} className="max-w-full max-h-[70vh] mx-auto object-contain" />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
+        status === 'approved' ? 'border-emerald-200' :
+        status === 'rejected' ? 'border-red-200' : 'border-gray-200'
+      }`}>
+        {/* Thumbnail */}
+        <div className="relative h-40 bg-gray-100 flex flex-col items-center justify-center gap-2">
+          {thumbUrl ? (
+            <img src={thumbUrl} alt={cfg.label} className="w-full h-full object-cover" />
+          ) : isImg ? (
+            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+              <FileText className="w-10 h-10 text-gray-400" />
+            </div>
+          ) : (
+            <FileText className="w-10 h-10 text-gray-400" />
+          )}
+          {doc.fileUrl && (
+            <button
+              onClick={handlePreview}
+              disabled={loadingPreview}
+              className="absolute bottom-2 right-2 flex items-center gap-1 text-[10px] font-medium text-primary bg-white border border-primary/20 px-2 py-1 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Eye className="w-3 h-3" />
+              {loadingPreview ? 'Chargement…' : 'Aperçu document'}
+            </button>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-3 bg-white">
+          <div className="flex items-start justify-between mb-1">
+            <p className="text-sm font-semibold text-gray-900 leading-tight">{cfg.label}</p>
+            <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+              {required !== undefined && (
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap ${
+                  required ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'
+                }`}>
+                  {required ? 'Obligatoire' : 'Facultatif'}
+                </span>
+              )}
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${DOC_STATUS_BADGE[status]}`}>
+                {DOC_STATUS_LABEL[status]}
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mb-3">{cfg.desc}</p>
+
+          {doc.rejectionReason && (
+            <p className="text-xs text-red-500 italic mb-2">↳ {doc.rejectionReason}</p>
+          )}
+
+          <div className="flex gap-2">
+            {status !== 'approved' && (
+              <button onClick={onApprove} className="flex-1 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors cursor-pointer">
+                Approuver
+              </button>
+            )}
+            {status !== 'rejected' && (
+              <button onClick={onReject} className="flex-1 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors cursor-pointer">
+                Rejeter
+              </button>
+            )}
+            {status === 'approved' && (
+              <button onClick={onReject} className="flex-1 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors cursor-pointer">
+                Annuler
+              </button>
+            )}
+          </div>
+
+          {doc.fileUrl && (
+            <button
+              onClick={handleOpen}
+              disabled={opening}
+              className="mt-2 w-full py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              {opening ? 'Ouverture…' : 'Ouvrir'}
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Composant : KYC Detail (vue pleine page) ──────────────────────────────────
+
+function DriverKycDetail({ driver: initialDriver, onBack, onRefresh }: {
+  driver: any;
+  onBack: () => void;
+  onRefresh: () => void;
+}) {
+  const [driver, setDriver] = useState<any>(initialDriver);
+  const [comment, setComment] = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rejectDocModal, setRejectDocModal] = useState<{ docId: string } | null>(null);
+  const [rejectDocReason, setRejectDocReason] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [docConfig, setDocConfig] = useState<Record<string, { required: boolean }>>({});
+
+  useEffect(() => {
+    adminApi.getDriverDocumentConfig()
+      .then(res => {
+        const map: Record<string, { required: boolean }> = {};
+        res.documents.forEach(d => { map[d.type] = { required: d.required }; });
+        setDocConfig(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  const name = driver.user?.name || 'Sans nom';
+  const phone = driver.user?.phone || '--';
+  const email = driver.user?.email || '--';
+  const vehicle = [driver.vehicleBrand, driver.vehicleModel].filter(Boolean).join(' ') || 'Non renseigné';
+  const plate = driver.vehiclePlate || '--';
+  const status = driver.status || 'pending';
+  const statusCfg = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
+  const StatusIcon = statusCfg.icon;
+
+  const handleVerify = async (action: 'approve' | 'reject' | 'suspend') => {
+    try {
+      setActionLoading(action);
+      await adminApi.verifyDriver(driver.id, action as any, comment || undefined);
+      onRefresh();
+      onBack();
+    } catch (e: any) {
+      alert(e.message || 'Erreur');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDocApprove = async (docId: string) => {
+    try {
+      await adminApi.verifyDocument(docId, 'approve');
+      setDriver((prev: any) => ({
+        ...prev,
+        documents: prev.documents.map((d: any) =>
+          d.id === docId ? { ...d, status: 'approved', rejectionReason: null } : d
+        ),
+      }));
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleDocReject = async (docId: string, reason?: string) => {
+    try {
+      await adminApi.verifyDocument(docId, 'reject', reason);
+      setDriver((prev: any) => ({
+        ...prev,
+        documents: prev.documents.map((d: any) =>
+          d.id === docId ? { ...d, status: 'rejected', rejectionReason: reason || null } : d
+        ),
+      }));
+    } catch (e: any) { alert(e.message); }
+  };
+
+  // KYC checklist résumé
+  const kycGroups = ['Identité', 'Selfie', 'Permis', 'Véhicule', 'Casier', 'Autre'];
+  const kycStatus = (group: string) => {
+    const docs = (driver.documents || []).filter((d: any) =>
+      DOC_CONFIG[d.type]?.kycKey === group
+    );
+    if (docs.length === 0) return 'missing';
+    if (docs.every((d: any) => d.status === 'approved')) return 'approved';
+    if (docs.some((d: any) => d.status === 'rejected')) return 'rejected';
+    return 'pending';
+  };
+
+  const kycBadge = (s: string) => ({
+    approved: 'bg-emerald-100 text-emerald-700',
+    rejected: 'bg-red-100 text-red-600',
+    pending:  'bg-amber-100 text-amber-700',
+    missing:  'bg-gray-100 text-gray-500',
+  }[s] ?? 'bg-gray-100 text-gray-500');
+
+  const kycLabel = (s: string) => ({
+    approved: 'Vérifié', rejected: 'Rejeté', pending: 'À vérifier', missing: 'Absent',
+  }[s] ?? 'Absent');
+
+  return (
+    <div>
+      {/* Top bar */}
+      <div className="flex items-center justify-between mb-6">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Retour
+        </button>
+
+        {status === 'approved' && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleVerify('suspend')}
+              disabled={!!actionLoading}
+              className="px-4 py-2 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Suspendre
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Driver header card */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+            <span className="text-xl font-bold text-primary">{name.charAt(0)}</span>
+          </div>
+          <div>
+            <p className="text-lg font-bold text-gray-900">{name}</p>
+            <p className="text-sm text-gray-500">{driver.city ?? 'Ville non renseignée'} · {vehicle} · {plate}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{phone}</p>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border ${statusCfg.classes}`}>
+            <StatusIcon className="w-3.5 h-3.5" />
+            {statusCfg.label}
+          </span>
+          {driver.user?.lastActiveAt && (
+            <span className="text-xs text-gray-400">
+              Dernière activité : {new Date(driver.user.lastActiveAt).toLocaleDateString('fr-FR')}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Warning banner (pending only) */}
+      {status === 'pending' && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5">
+          <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+          <p className="text-sm text-amber-800">
+            <span className="font-semibold">Contrôle requis : </span>
+            identité, permis, carte grise, selfie avec CNI et casier judiciaire.
+            Vérifiez la cohérence des données avant approbation.
+          </p>
+        </div>
+      )}
+
+      {/* Main grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+
+        {/* Left — Documents 2×2 */}
+        <div className="lg:col-span-2">
+          {(() => {
+            const uploadedMap: Record<string, any> = {};
+            (driver.documents || []).forEach((d: any) => { uploadedMap[d.type] = d; });
+
+            // Types configurés dans l'admin (docConfig) + types déjà uploadés
+            const configuredTypes = Object.keys(docConfig);
+            const uploadedTypes = Object.keys(uploadedMap);
+            const allTypes = Array.from(new Set([...configuredTypes, ...uploadedTypes]));
+            const submittedCount = uploadedTypes.length;
+            const totalCount = allTypes.length;
+            const verifiedCount = (driver.documents || []).filter((d: any) => d.status === 'approved').length;
+
+            return (<>
+            {/* Header avec compteurs */}
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900">Documents à vérifier</h3>
+              <div className="flex items-center gap-2">
+                {verifiedCount > 0 && (
+                  <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+                    {verifiedCount} vérifié{verifiedCount > 1 ? 's' : ''}
+                  </span>
+                )}
+                <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                  {submittedCount} / {totalCount} soumis
+                </span>
+                <span className="text-xs text-gray-400 font-medium">KYC</span>
+              </div>
+            </div>
+
+            {allTypes.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
+                Aucun document configuré ni soumis
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {allTypes.map((type) => {
+                  const doc = uploadedMap[type];
+                  if (doc) {
+                    return (
+                      <DocCard
+                        key={doc.id}
+                        doc={doc}
+                        onApprove={() => handleDocApprove(doc.id)}
+                        onReject={() => setRejectDocModal({ docId: doc.id })}
+                        required={docConfig[type]?.required}
+                      />
+                    );
+                  }
+                  // Document configuré mais non uploadé
+                  const cfg = DOC_CONFIG[type];
+                  const label = cfg?.label ?? type;
+                  const required = docConfig[type]?.required;
+                  return (
+                    <div key={type} className="bg-white rounded-2xl border border-dashed border-gray-200 p-4 flex flex-col gap-2 opacity-60">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-gray-300" />
+                        <span className="text-sm font-semibold text-gray-500">{label}</span>
+                        {required && (
+                          <span className="ml-auto text-[10px] font-bold bg-red-50 text-red-400 px-2 py-0.5 rounded-full">Obligatoire</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400 italic">Non soumis</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            </>);
+          })()}
+        </div>
+
+        {/* Right — Infos + KYC checklist */}
+        <div className="space-y-4">
+          {/* Informations */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-gray-900 text-sm">Informations fournies</h3>
+              <span className="text-xs text-gray-400">Profil</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { icon: User,  label: 'Nom complet',  value: name },
+                { icon: MapPin, label: 'Ville',        value: driver.city ?? '--' },
+                { icon: Phone, label: 'Téléphone',    value: phone },
+                { icon: Mail,  label: 'Email',         value: email },
+                { icon: Car,   label: 'Véhicule',      value: vehicle },
+                { icon: FileText, label: 'Plaque',     value: plate },
+                { icon: MapPin, label: 'Pays',         value: driver.countryCode ?? '--' },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-400 mb-1">{label}</p>
+                  <p className="text-xs font-semibold text-gray-900 truncate">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Type chauffeur */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <label className="text-xs text-gray-500 mb-1.5 block">Type chauffeur</label>
+              <select
+                value={driver.driverType ?? 'external'}
+                onChange={(e) => setDriver({ ...driver, driverType: e.target.value })}
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white"
+              >
+                <option value="external">Partenaire externe</option>
+                <option value="internal">Flotte AeroGo (interne)</option>
+              </select>
+              <button
+                disabled={profileSaving}
+                onClick={async () => {
+                  setProfileSaving(true);
+                  try {
+                    await adminApi.updateDriverProfile(driver.id, {
+                      driverType: driver.driverType,
+                    });
+                  } catch (e: any) { alert(e.message); }
+                  finally { setProfileSaving(false); }
+                }}
+                className="mt-2 w-full py-2 text-xs font-semibold text-primary border border-primary/30 rounded-xl hover:bg-primary/5 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {profileSaving ? 'Enregistrement…' : 'Sauvegarder'}
+              </button>
+            </div>
+          </div>
+
+          {/* KYC Checklist */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-gray-900 text-sm">Documents</h3>
+              <span className="text-xs text-gray-400">KYC</span>
+            </div>
+            <div className="space-y-2.5">
+              {kycGroups.map((group) => {
+                const s = kycStatus(group);
+                const desc: Record<string, string> = {
+                  Identité: 'CNI ou passeport conforme',
+                  Selfie:   'Visage visible et cohérent',
+                  Permis:   'Validité et identité vérifiées',
+                  Véhicule: 'Carte grise, assurance, contrôle technique',
+                  Casier:   'Bulletin n°3 de moins de 3 mois',
+                  Autre:    'Documents complémentaires',
+                };
+                return (
+                  <div key={group} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-800">{group}</p>
+                      <p className="text-[10px] text-gray-400">{desc[group]}</p>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${kycBadge(s)}`}>
+                      {kycLabel(s)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Surveillance */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">Surveillance</h3>
+          <span className="text-xs text-gray-400">Confiance</span>
+        </div>
+        <div className="space-y-1">
+          {[
+            {
+              label: 'GPS',
+              desc: 'Aucune anomalie détectée',
+              statusLabel: 'Vérifié',
+              color: 'emerald',
+            },
+            {
+              label: 'Comportement',
+              desc: (driver.totalRides ?? 0) > 0 ? `${driver.totalRides} courses effectuées` : 'Aucun incident signalé',
+              statusLabel: 'Stable',
+              color: 'emerald',
+            },
+            {
+              label: 'Fraude',
+              desc: driver.status === 'suspended' ? 'Compte suspendu — vérification en cours' : 'Pas d\'alerte active',
+              statusLabel: driver.status === 'suspended' ? 'Alerte' : 'RAS',
+              color: driver.status === 'suspended' ? 'amber' : 'emerald',
+            },
+          ].map(({ label, desc, statusLabel, color }) => (
+            <div key={label} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color === 'emerald' ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+                  <ShieldCheck className={`w-4 h-4 ${color === 'emerald' ? 'text-emerald-600' : 'text-amber-600'}`} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{label}</p>
+                  <p className="text-xs text-gray-400">{desc}</p>
+                </div>
+              </div>
+              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${color === 'emerald' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                {statusLabel}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Décision admin */}
+      {(status === 'pending' || status === 'rejected') && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-900">Décision admin</h3>
+            <span className="text-xs text-gray-400">Commentaire</span>
+          </div>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Ajoutez ici un commentaire interne ou la raison d'un rejet / d'une demande de correction."
+            rows={3}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all mb-4"
+          />
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => handleVerify('reject')}
+              disabled={!!actionLoading}
+              className="px-5 py-2.5 text-sm font-semibold text-red-600 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {actionLoading === 'reject' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Rejeter'}
+            </button>
+            <button
+              onClick={() => handleVerify('approve')}
+              disabled={!!actionLoading}
+              className="px-5 py-2.5 text-sm font-semibold text-white bg-emerald-500 rounded-xl hover:bg-emerald-600 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {actionLoading === 'approve' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Valider le chauffeur'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reject doc modal */}
+      {rejectDocModal && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl mx-4">
+            <h3 className="text-base font-bold text-gray-900 mb-3">Motif de rejet</h3>
+            <textarea
+              value={rejectDocReason}
+              onChange={(e) => setRejectDocReason(e.target.value)}
+              placeholder="Motif (optionnel)…"
+              rows={3}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setRejectDocModal(null); setRejectDocReason(''); }}
+                className="flex-1 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={async () => {
+                  await handleDocReject(rejectDocModal.docId, rejectDocReason || undefined);
+                  setRejectDocModal(null);
+                  setRejectDocReason('');
+                }}
+                className="flex-1 py-2.5 text-sm font-semibold text-white bg-red-500 rounded-xl hover:bg-red-600 transition-colors cursor-pointer"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Page principale ────────────────────────────────────────────────────────────
 
 export function DriversPage() {
   const [drivers, setDrivers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 10 });
+  const [selectedDriver, setSelectedDriver] = useState<any>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [rejectModal, setRejectModal] = useState<{driverId: string; name: string} | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [detailDriver, setDetailDriver] = useState<any>(null);
-  const [profileSaving, setProfileSaving] = useState(false);
 
-  useEffect(() => {
-    loadDrivers();
-  }, [statusFilter, page]);
-
-  const loadDrivers = async () => {
+  const loadDrivers = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -56,7 +696,9 @@ export function DriversPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, page]);
+
+  useEffect(() => { loadDrivers(); }, [loadDrivers]);
 
   const handleVerify = async (driverId: string, action: 'approve' | 'reject' | 'suspend', reason?: string) => {
     try {
@@ -70,48 +712,85 @@ export function DriversPage() {
     }
   };
 
+  const openDetail = async (driver: any) => {
+    try {
+      const detail = await adminApi.getDriverDetail(driver.id);
+      setSelectedDriver(detail);
+    } catch (err: any) {
+      alert(err.message || 'Erreur');
+    }
+  };
+
+  // Vue KYC pleine page
+  if (selectedDriver) {
+    return (
+      <DriverKycDetail
+        driver={selectedDriver}
+        onBack={() => setSelectedDriver(null)}
+        onRefresh={loadDrivers}
+      />
+    );
+  }
+
   const filteredDrivers = search
     ? drivers.filter((d) =>
-        (d.user?.name || d.name || '').toLowerCase().includes(search.toLowerCase()) ||
-        (d.user?.phone || d.phone || '').includes(search)
+        (d.user?.name || '').toLowerCase().includes(search.toLowerCase()) ||
+        (d.user?.phone || '').includes(search)
       )
     : drivers;
 
+  const filters = [
+    { value: '',          label: 'Tous' },
+    { value: 'pending',   label: 'En attente' },
+    { value: 'approved',  label: 'Validés' },
+    { value: 'rejected',  label: 'Rejetés' },
+    { value: 'suspended', label: 'Suspendus' },
+  ];
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-primary font-heading">
-            Gestion des Chauffeurs
-          </h2>
+          <h2 className="text-2xl font-bold text-primary font-heading">Gestion des Chauffeurs</h2>
           <p className="text-sm text-gray-400 mt-1">
             Validation des documents et gestion des profils chauffeurs
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-            className="px-4 py-2.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20"
-          >
-            <option value="">Tous les statuts</option>
-            <option value="pending">En attente</option>
-            <option value="approved">Approuves</option>
-            <option value="rejected">Rejetes</option>
-          </select>
-        </div>
+        <button className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors cursor-pointer">
+          Exporter CSV
+        </button>
       </div>
 
-      {/* Search */}
-      <div className="relative mb-6">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Rechercher un chauffeur..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-        />
+      {/* Filters + Search */}
+      <PageStats domain="drivers" title="Statistiques chauffeurs" />
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Rechercher un chauffeur…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+          />
+        </div>
+        <div className="flex gap-2">
+          {filters.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => { setStatusFilter(f.value); setPage(1); }}
+              className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                statusFilter === f.value
+                  ? 'bg-primary text-white'
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
@@ -123,18 +802,18 @@ export function DriversPage() {
           <AlertCircle className="w-8 h-8 text-red-400" />
           <p className="text-sm text-gray-500">{error}</p>
           <button onClick={loadDrivers} className="text-sm text-primary font-medium hover:underline cursor-pointer">
-            Reessayer
+            Réessayer
           </button>
         </div>
       ) : (
         <>
-          {/* Table */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100/80 overflow-hidden">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-4">Chauffeur</th>
-                  <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-4">Vehicule</th>
+                <tr className="border-b border-gray-100 bg-gray-50/50">
+                  <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-4">Nom</th>
+                  <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-4">Ville</th>
+                  <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-4">Courses</th>
                   <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-4">Statut</th>
                   <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-4">Note</th>
                   <th className="text-right text-xs font-semibold text-gray-400 uppercase tracking-wider px-6 py-4">Actions</th>
@@ -143,8 +822,8 @@ export function DriversPage() {
               <tbody className="divide-y divide-gray-50">
                 {filteredDrivers.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-sm text-gray-400">
-                      Aucun chauffeur trouve
+                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-400">
+                      Aucun chauffeur trouvé
                     </td>
                   </tr>
                 ) : (
@@ -152,18 +831,15 @@ export function DriversPage() {
                     const driverStatus = driver.status || 'pending';
                     const status = statusConfig[driverStatus as keyof typeof statusConfig] || statusConfig.pending;
                     const StatusIcon = status.icon;
-                    const name = driver.user?.name || driver.name || 'Sans nom';
-                    const phone = driver.user?.phone || driver.phone || '';
-                    const vehicle = [driver.vehicleBrand, driver.vehicleModel, driver.vehicleYear].filter(Boolean).join(' ') || 'Non renseigne';
+                    const name = driver.user?.name || 'Sans nom';
+                    const phone = driver.user?.phone || '';
 
                     return (
                       <tr key={driver.id} className="hover:bg-gray-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                              <span className="text-sm font-semibold text-primary">
-                                {name.charAt(0)}
-                              </span>
+                            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                              <span className="text-sm font-semibold text-primary">{name.charAt(0)}</span>
                             </div>
                             <div>
                               <p className="text-sm font-medium text-gray-900">{name}</p>
@@ -171,81 +847,51 @@ export function DriversPage() {
                             </div>
                           </div>
                         </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{driver.city ?? '--'}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{driver.totalRides ?? 0}</td>
                         <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <Car className="w-3.5 h-3.5 text-gray-400" />
-                            <span className="text-sm text-gray-600">{vehicle}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg ${status.classes}`}>
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border ${status.classes}`}>
                             <StatusIcon className="w-3 h-3" />
                             {status.label}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm text-gray-600">
-                            {driver.ratingAvg ? `${Number(driver.ratingAvg).toFixed(1)}/5` : '--'}
-                          </span>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {driver.ratingAvg ? `${Number(driver.ratingAvg).toFixed(1)}` : '--'}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={async () => {
-                                try {
-                                  const detail = await adminApi.getDriverDetail(driver.id);
-                                  setDetailDriver(detail);
-                                } catch (err: any) { alert(err.message || 'Erreur'); }
-                              }}
+                              onClick={() => openDetail(driver)}
                               className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80 bg-primary/5 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
                             >
                               <Eye className="w-3 h-3" />
                               Voir
                             </button>
                             {driverStatus === 'pending' && (
-                              <>
-                                <button
-                                  onClick={() => {
-                                    if (!window.confirm(`Approuver le chauffeur ${name} ?`)) return;
-                                    handleVerify(driver.id, 'approve');
-                                  }}
-                                  disabled={actionLoading === driver.id}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  <ShieldCheck className="w-3 h-3" />
-                                  Approuver
-                                </button>
-                                <button
-                                  onClick={() => setRejectModal({ driverId: driver.id, name })}
-                                  disabled={actionLoading === driver.id}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600 bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  <ShieldX className="w-3 h-3" />
-                                  Rejeter
-                                </button>
-                              </>
+                              <button
+                                onClick={() => handleVerify(driver.id, 'approve')}
+                                disabled={actionLoading === driver.id}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <ShieldCheck className="w-3 h-3" />
+                                Approuver
+                              </button>
                             )}
                             {driverStatus === 'approved' && (
                               <button
-                                onClick={() => {
-                                  if (!window.confirm(`Suspendre le chauffeur ${name} ? Il ne recevra plus de courses.`)) return;
-                                  handleVerify(driver.id, 'suspend');
-                                }}
+                                onClick={() => handleVerify(driver.id, 'suspend')}
                                 disabled={actionLoading === driver.id}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600 bg-red-50/50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-red-500 bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                               >
-                                <XCircle className="w-3 h-3" />
+                                <ShieldX className="w-3 h-3" />
                                 Suspendre
                               </button>
                             )}
                             {driverStatus === 'suspended' && (
                               <button
-                                onClick={() => {
-                                  if (!window.confirm(`Réactiver le chauffeur ${name} ?`)) return;
-                                  handleVerify(driver.id, 'approve');
-                                }}
+                                onClick={() => handleVerify(driver.id, 'approve')}
                                 disabled={actionLoading === driver.id}
-                                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                               >
                                 <CheckCircle className="w-3 h-3" />
                                 Réactiver
@@ -262,11 +908,11 @@ export function DriversPage() {
           </div>
 
           {/* Pagination */}
-          {pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4 px-2">
-              <p className="text-xs text-gray-400">
-                Page {pagination.page} sur {pagination.totalPages} ({pagination.total} chauffeurs)
-              </p>
+          <div className="flex items-center justify-between mt-4 px-2">
+            <p className="text-xs text-gray-400">
+              1 à {filteredDrivers.length} sur {pagination.total} chauffeurs
+            </p>
+            {pagination.totalPages > 1 && (
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPage(page - 1)}
@@ -275,6 +921,7 @@ export function DriversPage() {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
+                <span className="text-xs text-gray-500">{page} / {pagination.totalPages}</span>
                 <button
                   onClick={() => setPage(page + 1)}
                   disabled={page >= pagination.totalPages}
@@ -283,182 +930,9 @@ export function DriversPage() {
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </>
-      )}
-
-      {/* Rejection modal */}
-      {rejectModal && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Rejeter le chauffeur</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Veuillez indiquer la raison du rejet pour {rejectModal.name}
-            </p>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Raison du rejet..."
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none h-24 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-            />
-            <div className="flex gap-3 mt-4">
-              <button
-                onClick={() => { setRejectModal(null); setRejectReason(''); }}
-                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors cursor-pointer"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={async () => {
-                  await handleVerify(rejectModal.driverId, 'reject', rejectReason);
-                  setRejectModal(null);
-                  setRejectReason('');
-                }}
-                disabled={!rejectReason.trim()}
-                className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-500 rounded-xl hover:bg-red-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
-              >
-                Confirmer le rejet
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Driver detail modal */}
-      {detailDriver && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl mx-4 max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900">Detail chauffeur</h3>
-              <button onClick={() => setDetailDriver(null)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl">&times;</button>
-            </div>
-            <div className="space-y-3">
-              <div className="flex justify-between border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Nom</span>
-                <span className="text-sm font-medium">{detailDriver.user?.name || 'Sans nom'}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Telephone</span>
-                <span className="text-sm font-medium">{detailDriver.user?.phone || '--'}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Vehicule</span>
-                <span className="text-sm font-medium">{detailDriver.vehicleBrand} {detailDriver.vehicleModel} ({detailDriver.vehicleColor})</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Plaque</span>
-                <span className="text-sm font-medium">{detailDriver.vehiclePlate}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Langues</span>
-                <span className="text-sm font-medium">{(detailDriver.languages || []).join(', ')}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Note</span>
-                <span className="text-sm font-medium">{detailDriver.ratingAvg ? `${Number(detailDriver.ratingAvg).toFixed(1)}/5 (${detailDriver.ratingCount} avis)` : 'Aucun avis'}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Statut</span>
-                <span className="text-sm font-medium">{detailDriver.status}</span>
-              </div>
-              {/* Type chauffeur */}
-              <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Type chauffeur</span>
-                <select
-                  value={detailDriver.driverType ?? 'external'}
-                  onChange={(e) => setDetailDriver({ ...detailDriver, driverType: e.target.value })}
-                  className="text-sm font-medium border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  <option value="external">Partenaire externe</option>
-                  <option value="internal">Flotte AeroGo (interne)</option>
-                </select>
-              </div>
-              {/* Service consigne */}
-              <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                <span className="text-sm text-gray-500">Service consigne</span>
-                <button
-                  onClick={() => setDetailDriver({ ...detailDriver, consigneEnabled: !detailDriver.consigneEnabled })}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${detailDriver.consigneEnabled ? 'bg-purple-500' : 'bg-gray-200'}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${detailDriver.consigneEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                </button>
-              </div>
-              <button
-                disabled={profileSaving}
-                onClick={async () => {
-                  setProfileSaving(true);
-                  try {
-                    await adminApi.updateDriverProfile(detailDriver.id, {
-                      driverType: detailDriver.driverType,
-                      consigneEnabled: detailDriver.consigneEnabled,
-                    });
-                    await loadDrivers();
-                  } catch (err: any) { alert(err.message || 'Erreur'); }
-                  finally { setProfileSaving(false); }
-                }}
-                className="w-full mt-2 px-4 py-2.5 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {profileSaving ? 'Enregistrement...' : 'Enregistrer les modifications'}
-              </button>
-              {detailDriver.documents && detailDriver.documents.length > 0 && (
-                <div>
-                  <p className="text-sm text-gray-500 mb-2">Documents ({detailDriver.documents.length})</p>
-                  <div className="space-y-2">
-                    {detailDriver.documents.map((doc: any) => (
-                      <div key={doc.id} className="bg-gray-50 px-3 py-2 rounded-lg text-xs">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="font-medium">{doc.type}</span>
-                          <span className={doc.status === 'approved' ? 'text-emerald-600 font-semibold' : doc.status === 'rejected' ? 'text-red-500 font-semibold' : 'text-amber-600 font-semibold'}>
-                            {doc.status}
-                          </span>
-                        </div>
-                        {doc.fileUrl && (
-                          <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-primary underline text-[10px] block mb-1.5">
-                            Voir le document
-                          </a>
-                        )}
-                        {doc.status === 'pending' && (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await adminApi.verifyDocument(doc.id, 'approve');
-                                  setDetailDriver((prev: any) => prev ? {
-                                    ...prev,
-                                    documents: prev.documents.map((d: any) => d.id === doc.id ? { ...d, status: 'approved' } : d),
-                                  } : prev);
-                                } catch (e: any) { alert(e.message); }
-                              }}
-                              className="flex-1 py-1 rounded bg-emerald-100 text-emerald-700 font-semibold hover:bg-emerald-200 transition-colors"
-                            >
-                              Approuver
-                            </button>
-                            <button
-                              onClick={async () => {
-                                const reason = prompt('Motif de rejet (optionnel)');
-                                try {
-                                  await adminApi.verifyDocument(doc.id, 'reject', reason ?? undefined);
-                                  setDetailDriver((prev: any) => prev ? {
-                                    ...prev,
-                                    documents: prev.documents.map((d: any) => d.id === doc.id ? { ...d, status: 'rejected' } : d),
-                                  } : prev);
-                                } catch (e: any) { alert(e.message); }
-                              }}
-                              className="flex-1 py-1 rounded bg-red-100 text-red-600 font-semibold hover:bg-red-200 transition-colors"
-                            >
-                              Rejeter
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

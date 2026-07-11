@@ -62,7 +62,7 @@ export function AdminsPage() {
       await adminApi.deleteAdmin(id);
       load();
     } catch (err: any) {
-      alert(err.message || 'Erreur');
+      setError(err.status === 403 ? `Accès refusé — ${err.message}` : err.message || 'Erreur');
     }
   };
 
@@ -74,7 +74,7 @@ export function AdminsPage() {
       setAssignModal(null);
       load();
     } catch (err: any) {
-      alert(err.message || 'Erreur');
+      setError(err.status === 403 ? `Accès refusé — ${err.message}` : err.message || 'Erreur');
     } finally {
       setAssigning(false);
     }
@@ -85,7 +85,7 @@ export function AdminsPage() {
       await adminApi.removeRole(userId, roleId);
       load();
     } catch (err: any) {
-      alert(err.message || 'Erreur');
+      setError(err.status === 403 ? `Accès refusé — ${err.message}` : err.message || 'Erreur');
     }
   };
 

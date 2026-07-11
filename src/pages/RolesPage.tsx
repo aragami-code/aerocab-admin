@@ -53,7 +53,9 @@ export function RolesPage() {
       setCreateForm({ name: '', label: '', description: '' });
       load();
     } catch (err: any) {
-      alert(err.message || 'Erreur lors de la création');
+      setError(err.status === 403
+        ? `Accès refusé — ${err.message}`
+        : err.message || 'Erreur lors de la création');
     } finally {
       setCreating(false);
     }
@@ -65,7 +67,9 @@ export function RolesPage() {
       await adminApi.deleteRole(role.id);
       load();
     } catch (err: any) {
-      alert(err.message || 'Erreur');
+      setError(err.status === 403
+        ? `Accès refusé — ${err.message}`
+        : err.message || 'Erreur');
     }
   };
 
@@ -84,7 +88,9 @@ export function RolesPage() {
       setEditingRole(null);
       load();
     } catch (err: any) {
-      alert(err.message || 'Erreur');
+      setError(err.status === 403
+        ? `Escalade refusée — ${err.message}`
+        : err.message || 'Erreur sauvegarde permissions');
     } finally {
       setSaving(false);
     }

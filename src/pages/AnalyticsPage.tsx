@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, Loader2, DollarSign, Car, Plane, Globe } from 'lucide-react';
+import { TrendingUp, Loader2, DollarSign, Car, Plane, Globe, FileText, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { adminApi } from '../services/api';
 
 type Period = 'day' | 'week' | 'month';
@@ -26,6 +26,14 @@ export function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const today = new Date().toISOString().slice(0, 10);
+  const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+  const [reportFrom, setReportFrom] = useState(firstOfMonth);
+  const [reportTo, setReportTo] = useState(today);
+  const [report, setReport] = useState<any>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState('');
+
   useEffect(() => {
     load();
   }, [period]);
@@ -40,6 +48,19 @@ export function AnalyticsPage() {
       setError(err.message || 'Erreur de chargement');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadReport = async () => {
+    setReportLoading(true);
+    setReportError('');
+    try {
+      const data = await adminApi.getFinancialReport(reportFrom, reportTo);
+      setReport(data);
+    } catch (err: any) {
+      setReportError(err.message || 'Erreur');
+    } finally {
+      setReportLoading(false);
     }
   };
 
@@ -153,6 +174,68 @@ export function AnalyticsPage() {
           )}
         </>
       ) : null}
+
+      {/* Rapport financier */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <FileText className="w-5 h-5 text-primary" />
+          <h2 className="font-bold text-slate-800">Rapport financier</h2>
+        </div>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Du</label>
+            <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Au</label>
+            <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+          <button type="button" onClick={loadReport}
+            className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
+            Générer
+          </button>
+        </div>
+        {reportLoading && <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 text-primary animate-spin" /></div>}
+        {reportError && <div className="text-red-600 text-sm">{reportError}</div>}
+        {report && !reportLoading && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: 'Courses terminées', value: String(report.totalBookings), icon: Car, color: 'text-slate-700' },
+                { label: 'Revenu brut', value: formatFCFA(report.totalRevenue), icon: DollarSign, color: 'text-slate-700' },
+                { label: 'Commission plateforme', value: formatFCFA(report.commission), icon: ArrowUpRight, color: 'text-emerald-600' },
+                { label: 'Rémunération chauffeurs', value: formatFCFA(report.driverPayouts), icon: ArrowDownRight, color: 'text-blue-600' },
+              ].map(({ label, value, icon: Icon, color }) => (
+                <div key={label} className="bg-slate-50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon className={`w-4 h-4 ${color}`} />
+                    <span className="text-xs text-slate-500">{label}</span>
+                  </div>
+                  <div className={`font-bold text-lg ${color}`}>{value}</div>
+                </div>
+              ))}
+            </div>
+            {Object.keys(report.byType).length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-2">Par type de course</h3>
+                <div className="divide-y divide-gray-100 rounded-xl border border-gray-100 overflow-hidden">
+                  {Object.entries(report.byType as Record<string, { count: number; revenue: number }>).map(([type, data]) => (
+                    <div key={type} className="flex items-center justify-between px-4 py-3 bg-white">
+                      <span className="text-sm font-medium">{TYPE_LABELS[type]?.label ?? type}</span>
+                      <div className="flex gap-6 text-sm text-slate-600">
+                        <span>{data.count} courses</span>
+                        <span className="font-semibold">{formatFCFA(data.revenue)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
