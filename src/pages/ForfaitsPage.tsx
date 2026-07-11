@@ -3,17 +3,13 @@ import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api';
 
-const SURGE_KEYS = ['nightSurgeRate', 'rainSurgeRate', 'rushHourSurgeRate'] as const;
-type SurgeKey = typeof SURGE_KEYS[number];
-
 interface Forfait {
   id: string;
   name: string;
   airportCode: string;
   destinationName: string;
-  destLat: number;
-  destLng: number;
-  destRadius: number;
+  minDistKm: number;
+  maxDistKm: number;
   priceAmount: number;
   currency: string;
   countryCode: string;
@@ -21,18 +17,14 @@ interface Forfait {
   bookingTypes: string[];
   driverPercent: number;
   companyPercent: number;
-  nightSurgeRate: number | null;
-  rainSurgeRate: number | null;
-  rushHourSurgeRate: number | null;
   isActive: boolean;
 }
 
 const EMPTY: Partial<Forfait> = {
   name: '',
-  airportCode: '', destinationName: '', destLat: 0, destLng: 0, destRadius: 2,
+  airportCode: '', destinationName: '', minDistKm: 0, maxDistKm: 5,
   priceAmount: 0, currency: 'XAF', countryCode: 'CM',
   driverPercent: 85, companyPercent: 15, vehicleTypes: [], bookingTypes: [],
-  nightSurgeRate: null, rainSurgeRate: null, rushHourSurgeRate: null,
   isActive: true,
 };
 
@@ -80,13 +72,32 @@ export function ForfaitsPage() {
     }
     const url = isNew ? `${API}/forfaits/admin` : `${API}/forfaits/admin/${editing.id}`;
     const method = isNew ? 'POST' : 'PATCH';
+    const payload = {
+      name:              editing.name,
+      airportCode:       editing.airportCode,
+      destinationName:   editing.destinationName,
+      countryCode:       editing.countryCode,
+      minDistKm:         editing.minDistKm,
+      maxDistKm:         editing.maxDistKm,
+      priceAmount:       editing.priceAmount,
+      currency:          editing.currency,
+      driverPercent:     editing.driverPercent,
+      companyPercent:    editing.companyPercent,
+      vehicleTypes:      editing.vehicleTypes,
+      bookingTypes:      editing.bookingTypes,
+      isActive:          editing.isActive,
+    };
     try {
-      const res = await fetch(url, { method, headers, body: JSON.stringify(editing) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await fetch(url, { method, headers, body: JSON.stringify(payload) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Erreur ${res.status} : ${JSON.stringify(err.message ?? err)}`);
+        return;
+      }
       closeModal();
       await load();
-    } catch {
-      alert('Erreur lors de la sauvegarde');
+    } catch (e) {
+      alert('Erreur réseau lors de la sauvegarde');
     }
   };
 
@@ -117,20 +128,16 @@ export function ForfaitsPage() {
     setEditing(prev => ({ ...prev, [key]: value }));
 
   const numericFields = [
-    { label: 'Nom', key: 'name', type: 'text' },
+    { label: 'Nom de la zone', key: 'name', type: 'text' },
     { label: 'Code aéroport (IATA)', key: 'airportCode', type: 'text' },
-    { label: 'Destination', key: 'destinationName', type: 'text' },
+    { label: 'Description de la zone', key: 'destinationName', type: 'text' },
     { label: 'Pays (ISO)', key: 'countryCode', type: 'text' },
-    { label: 'Lat destination', key: 'destLat', type: 'number' },
-    { label: 'Lng destination', key: 'destLng', type: 'number' },
-    { label: 'Rayon détection (km)', key: 'destRadius', type: 'number' },
+    { label: 'Distance min depuis aéroport (km)', key: 'minDistKm', type: 'number' },
+    { label: 'Distance max depuis aéroport (km)', key: 'maxDistKm', type: 'number' },
     { label: 'Prix de base', key: 'priceAmount', type: 'number' },
     { label: 'Devise', key: 'currency', type: 'text' },
     { label: 'Driver %', key: 'driverPercent', type: 'number' },
     { label: 'Société %', key: 'companyPercent', type: 'number' },
-    { label: 'Surcharge nuit (×)', key: 'nightSurgeRate', type: 'number' },
-    { label: 'Surcharge pluie (×)', key: 'rainSurgeRate', type: 'number' },
-    { label: 'Surcharge pointe (×)', key: 'rushHourSurgeRate', type: 'number' },
   ];
 
   return (
@@ -166,7 +173,7 @@ export function ForfaitsPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-600">
               <tr>
-                {['Nom', 'Aéroport', 'Destination', 'Prix', 'Driver%', 'Types', 'Statut', 'Actions'].map(h => (
+                {['Nom', 'Aéroport', 'Zone', 'Distance', 'Prix', 'Driver%', 'Types', 'Statut', 'Actions'].map(h => (
                   <th key={h} className="px-4 py-3 text-left font-medium">{h}</th>
                 ))}
               </tr>
@@ -176,11 +183,26 @@ export function ForfaitsPage() {
                 <tr key={f.id} className={`hover:bg-gray-50 ${!f.isActive ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-3 font-medium">{f.name}</td>
                   <td className="px-4 py-3"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-mono">{f.airportCode}</span></td>
-                  <td className="px-4 py-3">{f.destinationName}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{f.destinationName}</td>
+                  <td className="px-4 py-3">
+                    <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs font-mono">
+                      {f.minDistKm}–{f.maxDistKm} km
+                    </span>
+                  </td>
                   <td className="px-4 py-3 font-semibold">{f.priceAmount.toLocaleString()} {f.currency}</td>
                   <td className="px-4 py-3">{f.driverPercent}%</td>
                   <td className="px-4 py-3 text-xs text-gray-500">
-                    {f.bookingTypes.length === 0 ? 'Tous' : f.bookingTypes.join(', ')}
+                    <div>{f.bookingTypes.length === 0 ? 'Tous types' : f.bookingTypes.join(', ')}</div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {f.vehicleTypes.length === 0
+                        ? <span className="text-green-600 font-medium">Tous véhicules</span>
+                        : f.vehicleTypes.map(v => (
+                          <span key={v} className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs">
+                            {v === 'eco' ? '🚗 Éco' : v === 'eco_plus' ? '🚙 Éco+' : v === 'van' ? '🚐 Van' : v === 'premium' ? '🏎️ Premium' : v === 'moto' ? '🏍️ Moto' : v}
+                          </span>
+                        ))
+                      }
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <button type="button" onClick={() => toggle(f)} className="text-gray-500 hover:text-blue-600" aria-label={f.isActive ? 'Désactiver' : 'Activer'}>
@@ -214,12 +236,11 @@ export function ForfaitsPage() {
             </h2>
             <div className="grid grid-cols-2 gap-4">
               {numericFields.map(({ label, key, type }) => {
-                const isSurge = (SURGE_KEYS as readonly string[]).includes(key);
                 const rawVal = (editing as Record<string, unknown>)[key];
                 return (
                   <div key={key}>
                     <label htmlFor={`field-${key}`} className="block text-xs text-gray-500 mb-1">
-                      {label}{isSurge && <span className="text-gray-400"> (vide = aucune)</span>}
+                      {label}
                     </label>
                     <input
                       id={`field-${key}`}
@@ -227,9 +248,8 @@ export function ForfaitsPage() {
                       value={(rawVal as string | number) ?? ''}
                       onChange={e => {
                         if (type === 'number') {
-                          const v = e.target.value === '' ? null : parseFloat(e.target.value);
-                          // keep null for surge fields when empty, use 0 for required numeric fields
-                          setField(key, isSurge ? v : (v ?? 0));
+                          const v = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                          setField(key, v);
                         } else {
                           setField(key, e.target.value);
                         }
@@ -241,30 +261,63 @@ export function ForfaitsPage() {
               })}
             </div>
             <div className="mt-4">
-              <label htmlFor="field-bookingTypes" className="block text-xs text-gray-500 mb-1">
-                Types de booking (ARRIVAL, DEPARTURE, INTERNATIONAL — vide = tous)
-              </label>
-              <input
-                id="field-bookingTypes"
-                type="text"
-                placeholder="ex: ARRIVAL,DEPARTURE"
-                value={(editing.bookingTypes ?? []).join(',')}
-                onChange={e => setField('bookingTypes', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
+              <p className="block text-xs text-gray-500 mb-2">Types de booking (vide = tous)</p>
+              <div className="flex flex-wrap gap-3">
+                {(['ARRIVAL', 'DEPARTURE', 'INTERNATIONAL'] as const).map(bt => (
+                  <label key={bt} className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={(editing.bookingTypes ?? []).includes(bt)}
+                      onChange={e => {
+                        const current = (editing.bookingTypes ?? []) as string[];
+                        setField('bookingTypes', e.target.checked ? [...current, bt] : current.filter(v => v !== bt));
+                      }}
+                      className="w-4 h-4 accent-blue-600"
+                    />
+                    <span className="text-sm">{bt === 'ARRIVAL' ? '✈️ Arrivée' : bt === 'DEPARTURE' ? '🛫 Départ' : '🌍 International'}</span>
+                  </label>
+                ))}
+              </div>
             </div>
             <div className="mt-4">
-              <label htmlFor="field-vehicleTypes" className="block text-xs text-gray-500 mb-1">
-                Types de véhicule (vide = tous)
-              </label>
-              <input
-                id="field-vehicleTypes"
-                type="text"
-                placeholder="ex: SEDAN,VAN"
-                value={(editing.vehicleTypes ?? []).join(',')}
-                onChange={e => setField('vehicleTypes', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
+              <p className="block text-xs text-gray-500 mb-1">Véhicules autorisés pour cette zone</p>
+              <p className="text-xs text-gray-400 mb-2">Le prix reste fixe quel que soit le véhicule choisi. Vide = tous les véhicules.</p>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { id: 'eco',      label: 'Éco',      icon: '🚗' },
+                  { id: 'eco_plus', label: 'Éco+',     icon: '🚙' },
+                  { id: 'van',      label: 'Van',       icon: '🚐' },
+                  { id: 'premium',  label: 'Premium',   icon: '🏎️' },
+                  { id: 'moto',     label: 'Moto',      icon: '🏍️' },
+                ] as const).map(v => {
+                  const checked = (editing.vehicleTypes ?? []).includes(v.id);
+                  return (
+                    <label
+                      key={v.id}
+                      className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
+                        checked ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-600'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => {
+                          const current = (editing.vehicleTypes ?? []) as string[];
+                          setField('vehicleTypes', e.target.checked ? [...current, v.id] : current.filter(x => x !== v.id));
+                        }}
+                        className="w-4 h-4 accent-blue-600"
+                      />
+                      <span className="text-base">{v.icon}</span>
+                      <span className="text-sm font-medium">{v.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              {(editing.vehicleTypes ?? []).length > 0 && (
+                <p className="mt-2 text-xs text-blue-600 font-medium">
+                  Prix fixe {editing.priceAmount?.toLocaleString() ?? '—'} {editing.currency ?? 'XAF'} pour : {(editing.vehicleTypes ?? []).join(', ')}
+                </p>
+              )}
             </div>
             <div className="mt-4 flex items-center gap-2">
               <input

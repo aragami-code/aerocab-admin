@@ -5,6 +5,9 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: ['leaflet', 'react-leaflet'],
+  },
   test: {
     globals: true,
     environment: 'jsdom',
@@ -18,6 +21,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    watch: {
+      usePolling: true,
+      interval: 1000,
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

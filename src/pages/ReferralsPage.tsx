@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Share2, Users, ArrowRight, Calendar, Search, Loader2 } from 'lucide-react';
 import { adminApi } from '../services/api';
+import { PageStats } from '../components/PageStats';
 
 export function ReferralsPage() {
   const [referrals, setReferrals] = useState<any[]>([]);
@@ -45,6 +46,8 @@ export function ReferralsPage() {
           <p className="text-xl font-bold text-primary">{total}</p>
         </div>
       </div>
+
+      <PageStats domain="referrals" title="Statistiques parrainage" />
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">

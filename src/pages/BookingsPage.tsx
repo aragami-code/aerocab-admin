@@ -2,12 +2,14 @@ import { useState, useEffect, Component, type ReactNode, type ErrorInfo } from '
 import {
   Search, CheckCircle, Clock, Car, Loader2,
   AlertCircle, ChevronLeft, ChevronRight, Ban, ArrowLeft,
-  MapPin, Phone, Navigation, Download, Star,
+  MapPin, Phone, Navigation, Download, Star, RefreshCw,
+  Wallet, Route, Coins,
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { adminApi } from '../services/api';
 import { Can } from '../components/Can';
+import { PageStats } from '../components/PageStats';
 
 class MapErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null };
@@ -51,7 +53,6 @@ const iconRed = new L.Icon({
   shadowSize:    [41, 41],
 });
 
-// Ajuste la vue selon les markers
 function FitBounds({ positions }: { positions: [number, number][] }) {
   const map = useMap();
   useEffect(() => {
@@ -65,20 +66,24 @@ function FitBounds({ positions }: { positions: [number, number][] }) {
 }
 
 // ── Carte interactive Leaflet ─────────────────────────────────────────────────
-function BookingMap({ booking }: { booking: any }) {
+function BookingMap({ booking, gpsTrack }: { booking: any; gpsTrack?: [number, number][] }) {
   const hasPickup = booking.pickupLat && booking.pickupLng;
   const hasDest   = booking.destLat && booking.destLng;
+  const hasTrack  = !!(gpsTrack && gpsTrack.length > 1);
   const [route, setRoute] = useState<[number, number][]>([]);
+  // Par défaut on montre le tracé GPS réel s'il existe, sinon l'itinéraire théorique.
+  const [mode, setMode] = useState<'real' | 'theo'>(hasTrack ? 'real' : 'theo');
+  useEffect(() => { setMode(hasTrack ? 'real' : 'theo'); }, [hasTrack]);
 
   const pickupPos: [number, number] | null = hasPickup
     ? [Number(booking.pickupLat), Number(booking.pickupLng)] : null;
   const destPos: [number, number] | null = hasDest
     ? [Number(booking.destLat), Number(booking.destLng)] : null;
 
-  const positions = [pickupPos, destPos].filter(Boolean) as [number, number][];
-  const center: [number, number] = positions[0] ?? [4.0511, 9.7679];
+  const endpoints = [pickupPos, destPos].filter(Boolean) as [number, number][];
+  const fitPositions = (mode === 'real' && hasTrack) ? gpsTrack! : endpoints;
+  const center: [number, number] = endpoints[0] ?? (hasTrack ? gpsTrack![0] : [4.0511, 9.7679]);
 
-  // Tracé d'itinéraire via OSRM (routing gratuit)
   useEffect(() => {
     if (!pickupPos || !destPos) return;
     const url = `https://router.project-osrm.org/route/v1/driving/` +
@@ -91,12 +96,11 @@ function BookingMap({ booking }: { booking: any }) {
         if (coords) setRoute(coords.map(([lng, lat]: [number, number]) => [lat, lng]));
       })
       .catch(() => {
-        // fallback : ligne droite
         if (pickupPos && destPos) setRoute([pickupPos, destPos]);
       });
   }, [booking.pickupLat, booking.pickupLng, booking.destLat, booking.destLng]);
 
-  if (!hasPickup && !hasDest) {
+  if (!hasPickup && !hasDest && !hasTrack) {
     return (
       <div className="flex flex-col items-center justify-center h-[340px] gap-2 text-gray-400 bg-gray-50">
         <Navigation className="w-8 h-8" />
@@ -113,7 +117,7 @@ function BookingMap({ booking }: { booking: any }) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitBounds positions={positions} />
+        <FitBounds positions={fitPositions} />
         {pickupPos && (
           <Marker position={pickupPos} icon={iconGreen}>
             <Popup>Prise en charge<br /><small>{booking.departureAirport ?? ''}</small></Popup>
@@ -124,10 +128,30 @@ function BookingMap({ booking }: { booking: any }) {
             <Popup>Destination<br /><small>{booking.destination ?? ''}</small></Popup>
           </Marker>
         )}
-        {route.length > 1 && (
+        {mode === 'theo' && route.length > 1 && (
           <Polyline positions={route} color="#1a56db" weight={5} opacity={0.8} />
         )}
+        {mode === 'real' && hasTrack && (
+          <Polyline positions={gpsTrack!} color="#059669" weight={5} opacity={0.85} />
+        )}
       </MapContainer>
+      {/* Toggle tracé réel / théorique (uniquement si on a un tracé GPS) */}
+      {hasTrack && (
+        <div className="absolute top-3 left-3 z-[1000] flex rounded-xl overflow-hidden shadow-sm border border-gray-200 text-xs font-semibold">
+          <button
+            onClick={() => setMode('real')}
+            className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${mode === 'real' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+          >
+            <Route className="w-3 h-3" /> Tracé réel
+          </button>
+          <button
+            onClick={() => setMode('theo')}
+            className={`px-2.5 py-1.5 transition-colors ${mode === 'theo' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+          >
+            Théorique
+          </button>
+        </div>
+      )}
       {pickupPos && destPos && (
         <a
           href={`https://www.google.com/maps/dir/${pickupPos[0]},${pickupPos[1]}/${destPos[0]},${destPos[1]}`}
@@ -165,6 +189,12 @@ function BookingDetail({ booking, onBack, onCancel }: {
   const cfg = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
   const [ratings, setRatings] = useState<any[]>([]);
   const [ratingsLoading, setRatingsLoading] = useState(false);
+  const [refundModal, setRefundModal] = useState(false);
+  const [refundReason, setRefundReason] = useState('');
+  const [refunding, setRefunding] = useState(false);
+  const [refundDone, setRefundDone] = useState(!!booking.paymentIntent?.refundedAt);
+  const [detail, setDetail] = useState<Awaited<ReturnType<typeof adminApi.getBookingDetail>> | null>(null);
+  const [detailLoading, setDetailLoading] = useState(true);
 
   useEffect(() => {
     if (booking.status !== 'completed') return;
@@ -174,6 +204,32 @@ function BookingDetail({ booking, onBack, onCancel }: {
       .catch(() => setRatingsLoading(false));
   }, [booking.id, booking.status]);
 
+  // Détail consolidé : ventilation financière + tracé GPS réel.
+  useEffect(() => {
+    setDetailLoading(true);
+    adminApi.getBookingDetail(booking.id)
+      .then(d => { setDetail(d); setDetailLoading(false); })
+      .catch(() => setDetailLoading(false));
+  }, [booking.id]);
+
+  const gpsTrack: [number, number][] = (detail?.track.positions ?? []).map(p => [p.lat, p.lng]);
+
+  const handleRefund = async () => {
+    setRefunding(true);
+    try {
+      const res = await adminApi.refundBooking(booking.id, refundReason.trim() || undefined);
+      if (res.success) {
+        setRefundDone(true);
+        setRefundModal(false);
+        setRefundReason('');
+      }
+    } catch (e: any) {
+      alert(e.message ?? 'Erreur lors du remboursement');
+    } finally {
+      setRefunding(false);
+    }
+  };
+
   const timeline = [
     { label: 'Course acceptée',  done: true },
     { label: 'Chauffeur en route', done: ['arrived_at_airport','in_progress','completed'].includes(booking.status) },
@@ -182,7 +238,9 @@ function BookingDetail({ booking, onBack, onCancel }: {
     { label: 'Course terminée',  done: booking.status === 'completed' },
   ];
 
+  const isCash = booking.paymentMethod === 'cash' || !booking.paymentMethod;
   const canCancel = !['completed','cancelled'].includes(booking.status);
+  const canRefund = ['completed','cancelled'].includes(booking.status) && !refundDone && (booking.estimatedPrice ?? 0) > 0;
 
   return (
     <div>
@@ -212,6 +270,21 @@ function BookingDetail({ booking, onBack, onCancel }: {
               <Car className="w-3.5 h-3.5" /> Chauffeur
             </a>
           )}
+          {canRefund && (
+            <button
+              onClick={() => setRefundModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              {isCash ? 'Crédit pts' : 'Rembourser'}
+            </button>
+          )}
+          {refundDone && (
+            <span className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <CheckCircle className="w-3.5 h-3.5" />
+              {isCash ? 'Crédit accordé' : 'Remboursé'}
+            </span>
+          )}
           {canCancel && (
             <button
               onClick={onCancel}
@@ -223,12 +296,83 @@ function BookingDetail({ booking, onBack, onCancel }: {
         </div>
       </div>
 
+      {/* Modal Remboursement */}
+      {refundModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                <RefreshCw className="w-5 h-5 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900">
+                  {isCash ? 'Crédit de points (geste commercial)' : 'Rembourser la course'}
+                </h3>
+                <p className="text-xs text-gray-400">
+                  {isCash
+                    ? 'La course est payée en espèces — ce crédit est un geste commercial en points'
+                    : 'Crédite les points au passager'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-4 mb-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Montant à rembourser</span>
+                <span className="text-base font-bold text-emerald-600">
+                  {(booking.estimatedPrice ?? 0).toLocaleString()} pts
+                </span>
+              </div>
+              <div className="flex justify-between items-center mt-1">
+                <span className="text-xs text-gray-400">Passager</span>
+                <span className="text-xs text-gray-700">{booking.passenger?.name ?? '—'}</span>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                Motif du remboursement <span className="text-gray-400">(optionnel)</span>
+              </label>
+              <input
+                type="text"
+                value={refundReason}
+                onChange={e => setRefundReason(e.target.value)}
+                placeholder="Ex : Course annulée par le chauffeur, incident…"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-300"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setRefundModal(false); setRefundReason(''); }}
+                className="flex-1 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors cursor-pointer"
+                disabled={refunding}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleRefund}
+                disabled={refunding}
+                className="flex-1 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {refunding ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* KPI bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
         {[
           { label: 'Statut',   value: cfg.label, color: cfg.classes },
-          { label: 'Montant',  value: `${(booking.estimatedPrice ?? 0).toLocaleString()} FCFA` },
-          { label: 'Distance', value: booking.distanceKm ? `${booking.distanceKm} km` : '—' },
+          { label: isCash ? 'Espèces (chauffeur)' : 'Montant',
+            value: `${(booking.estimatedPrice ?? 0).toLocaleString()} FCFA` },
+          { label: detail?.track.realDistanceKm ? 'Distance réelle (GPS)' : 'Distance',
+            value: detail?.track.realDistanceKm
+              ? `${detail.track.realDistanceKm} km`
+              : (booking.distanceKm ? `${booking.distanceKm} km` : '—') },
           { label: 'Durée',    value: booking.durationMinutes ? `${booking.durationMinutes} min` : '—' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
@@ -241,7 +385,7 @@ function BookingDetail({ booking, onBack, onCancel }: {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Carte interactive */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <MapErrorBoundary><BookingMap booking={booking} /></MapErrorBoundary>
+          <MapErrorBoundary><BookingMap booking={booking} gpsTrack={gpsTrack} /></MapErrorBoundary>
         </div>
 
         {/* Infos + Timeline */}
@@ -263,6 +407,76 @@ function BookingDetail({ booking, onBack, onCancel }: {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Détail financier */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h3 className="font-semibold text-gray-900 text-sm mb-3 flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-primary" /> Détail financier
+            </h3>
+            {detailLoading ? (
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement…
+              </div>
+            ) : !detail ? (
+              <p className="text-xs text-gray-400">Données financières indisponibles.</p>
+            ) : (() => {
+              const f = detail.financials;
+              const cur = f.payoutCurrency || 'XAF';
+              const fmt = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} ${cur}`;
+              const Row = ({ label, value, tone, strong }: { label: string; value: string; tone?: string; strong?: boolean }) => (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
+                  <span className={`text-xs text-right ${strong ? 'font-bold' : 'font-semibold'} ${tone ?? 'text-gray-900'}`}>{value}</span>
+                </div>
+              );
+              return (
+                <div className="space-y-2.5">
+                  <Row label="Montant brut" value={fmt(f.gross)} />
+                  {f.discountAmount > 0 && <Row label="Remise" value={`− ${fmt(f.discountAmount)}`} tone="text-amber-600" />}
+                  {f.discountFromPoints > 0 && <Row label="Payé en points" value={`${f.discountFromPoints.toLocaleString('fr-FR')} pts`} tone="text-amber-600" />}
+                  {f.commissionAmount != null && (
+                    <Row
+                      label={`Commission AeroGo${f.commissionRate != null ? ` (${Math.round(f.commissionRate * 100)}%)` : ''}`}
+                      value={`− ${fmt(f.commissionAmount)}`}
+                      tone="text-red-500"
+                    />
+                  )}
+                  {f.providerFeeAmount > 0 && <Row label="Frais paiement" value={`− ${fmt(f.providerFeeAmount)}`} tone="text-red-500" />}
+                  {f.tip > 0 && <Row label="Pourboire" value={`+ ${fmt(f.tip)}`} tone="text-emerald-600" />}
+                  {f.net != null && (
+                    <div className="pt-2 mt-1 border-t border-gray-100">
+                      <Row label="Net chauffeur" value={fmt(f.net)} tone="text-emerald-700" strong />
+                    </div>
+                  )}
+                  <div className="pt-2 mt-1 border-t border-gray-100 space-y-2.5">
+                    <Row label="Méthode" value={f.isCash ? 'Espèces' : f.paymentMethod} />
+                    {f.payoutStatus && <Row label="Statut versement" value={f.payoutStatus} />}
+                    {f.intent && <Row label={`PaymentIntent (${f.intent.provider})`} value={f.intent.status} />}
+                    {f.cashDebt != null && (
+                      <Row label="Commission due (cash)" value={fmt(f.cashDebt)} tone="text-orange-600" strong />
+                    )}
+                  </div>
+                  {f.pointsTx.length > 0 && (
+                    <div className="pt-2 mt-1 border-t border-gray-100">
+                      <p className="text-xs text-gray-400 mb-2 flex items-center gap-1.5">
+                        <Coins className="w-3 h-3" /> Mouvements de points liés
+                      </p>
+                      <div className="space-y-1.5">
+                        {f.pointsTx.map((t, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-gray-500 truncate" title={t.label}>{t.label}</span>
+                            <span className={`text-xs font-semibold flex-shrink-0 ${t.points >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                              {t.points >= 0 ? '+' : ''}{t.points.toLocaleString('fr-FR')} pts
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Timeline */}
@@ -358,14 +572,24 @@ export function BookingsPage() {
   const [pagination, setPagination] = useState({ total: 0, totalPages: 1, page: 1, limit: 20 });
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
-  const [exportLoading, setExportLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState<'csv' | 'excel' | 'pdf' | null>(null);
 
-  const handleExport = async () => {
+  const handleExport = async (format: 'csv' | 'excel' | 'pdf') => {
     try {
-      setExportLoading(true);
-      await adminApi.downloadCsv('/admin/export/bookings', 'bookings.csv');
+      setExportLoading(format);
+      if (format === 'csv') {
+        await adminApi.downloadCsv('/admin/export/bookings', 'reservations.csv');
+      } else if (format === 'excel') {
+        await adminApi.downloadFile(
+          '/admin/export/bookings/excel',
+          'reservations.xlsx',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      } else {
+        await adminApi.downloadFile('/admin/export/bookings/pdf', 'reservations.pdf', 'application/pdf');
+      }
     } catch { /* ignore */ } finally {
-      setExportLoading(false);
+      setExportLoading(null);
     }
   };
 
@@ -431,15 +655,33 @@ export function BookingsPage() {
           <p className="text-sm text-gray-400 mt-1">Suivi et gestion de toutes les courses</p>
         </div>
         <div className="flex items-center gap-2">
-          <Can permission="view_stats">
-            <button
-              onClick={handleExport}
-              disabled={exportLoading}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              {exportLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              Exporter CSV
-            </button>
+          <Can permission="export_data">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleExport('csv')}
+                disabled={exportLoading !== null}
+                className="flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {exportLoading === 'csv' ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                CSV
+              </button>
+              <button
+                onClick={() => handleExport('excel')}
+                disabled={exportLoading !== null}
+                className="flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {exportLoading === 'excel' ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                XLSX
+              </button>
+              <button
+                onClick={() => handleExport('pdf')}
+                disabled={exportLoading !== null}
+                className="flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {exportLoading === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                PDF
+              </button>
+            </div>
           </Can>
           <select
             value={statusFilter}
@@ -455,6 +697,8 @@ export function BookingsPage() {
           </select>
         </div>
       </div>
+
+      <PageStats domain="bookings" title="Statistiques réservations" />
 
       <div className="relative mb-6">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

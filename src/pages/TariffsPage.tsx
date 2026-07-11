@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Save, RotateCcw, DollarSign, Car, Zap, Package, Clock, Globe, Plus, Trash2, ChevronRight, Star, Settings2, Radio, Mail, X } from 'lucide-react';
+import { Save, RotateCcw, DollarSign, Car, Zap, Package, Clock, Globe, Plus, Trash2, ChevronRight, Star, Settings2, Radio, Mail, X, CreditCard, Smartphone, Check } from 'lucide-react';
 import { adminApi } from '../services/api';
 
 interface VehicleTariff {
@@ -9,10 +9,7 @@ interface VehicleTariff {
   label?: string;
   isActive?: boolean;
   maxPassengers?: number;
-}
-interface SurgeConfig {
-  nightMultiplier: number; rainMultiplier: number; rushHourMultiplier: number;
-  rushHourStart: string; rushHourEnd: string; rushHourStart2: string; rushHourEnd2: string;
+  commissionRate?: number;
 }
 interface ReferralBonus {
   onSignup: number;
@@ -27,10 +24,7 @@ interface TariffsConfig {
   pricePerMinute: number;
   currency?: string;
   currencySymbol?: string;
-  consigneEnabled: boolean;
   vehicles: Record<string, VehicleTariff>;
-  consigne: Record<string, { dailyRate: number }>;
-  surge: SurgeConfig;
   // Système de points
   pointValue: number;
   pointRechargeRate: number;
@@ -64,25 +58,12 @@ const DEFAULT_TARIFFS: TariffsConfig = {
   pricePerMinute: 50,
   currency: 'XAF',
   currencySymbol: 'FCFA',
-  consigneEnabled: true,
   vehicles: {
     eco:          { basePricePerKm: 250, minFare: 3000,  coefficient: 1.0 },
     eco_plus:     { basePricePerKm: 250, minFare: 3500,  coefficient: 1.2 },
     standard:     { basePricePerKm: 250, minFare: 5000,  coefficient: 1.4 },
     confort:      { basePricePerKm: 250, minFare: 8000,  coefficient: 2.0 },
     confort_plus: { basePricePerKm: 250, minFare: 12000, coefficient: 2.5 },
-  },
-  consigne: {
-    eco:          { dailyRate: 5000  },
-    eco_plus:     { dailyRate: 6000  },
-    standard:     { dailyRate: 8000  },
-    confort:      { dailyRate: 12000 },
-    confort_plus: { dailyRate: 18000 },
-  },
-  surge: {
-    nightMultiplier: 1.3, rainMultiplier: 1.2, rushHourMultiplier: 1.25,
-    rushHourStart: '07:00', rushHourEnd: '09:00',
-    rushHourStart2: '17:00', rushHourEnd2: '19:00',
   },
   pointValue: 1,
   pointRechargeRate: 1,
@@ -95,8 +76,6 @@ function mergeTariffs(data: any): TariffsConfig {
     ...DEFAULT_TARIFFS,
     ...data,
     vehicles:      { ...DEFAULT_TARIFFS.vehicles,      ...(data.vehicles      ?? {}) },
-    consigne:      { ...DEFAULT_TARIFFS.consigne,      ...(data.consigne      ?? {}) },
-    surge:         { ...DEFAULT_TARIFFS.surge,         ...(data.surge         ?? {}) },
     referralBonus: { ...DEFAULT_TARIFFS.referralBonus, ...(data.referralBonus ?? {}) },
   };
 }
@@ -115,19 +94,6 @@ function NumberInput({ label, value, onChange, suffix, step = 1, min = 0 }: {
         />
         {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">{suffix}</span>}
       </div>
-    </div>
-  );
-}
-
-function TimeInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-      <input
-        type="time" value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-      />
     </div>
   );
 }
@@ -151,10 +117,6 @@ function TariffForm({
   const setGlobal = (key: keyof TariffsConfig, v: number | string) => setConfig({ ...config, [key]: v });
   const setVehicle = (vt: string, key: keyof VehicleTariff, v: number | string | boolean) =>
     setConfig({ ...config, vehicles: { ...config.vehicles, [vt]: { ...config.vehicles[vt], [key]: v } } });
-  const setConsigne = (vt: string, v: number) =>
-    setConfig({ ...config, consigne: { ...config.consigne, [vt]: { dailyRate: v } } });
-  const setSurge = (key: keyof SurgeConfig, v: number | string) =>
-    setConfig({ ...config, surge: { ...config.surge, [key]: v } });
 
   const previewPrice = (vt: string) => {
     const v = config.vehicles[vt];
@@ -239,7 +201,7 @@ function TariffForm({
           <button
             onClick={() => {
               const id = `custom_${Date.now()}`;
-              setConfig({ ...config, vehicles: { ...config.vehicles, [id]: { basePricePerKm: 250, minFare: 3000, coefficient: 1.0, label: 'Nouveau', isActive: true, maxPassengers: 4 } }, consigne: { ...config.consigne, [id]: { dailyRate: 5000 } } });
+              setConfig({ ...config, vehicles: { ...config.vehicles, [id]: { basePricePerKm: 250, minFare: 3000, coefficient: 1.0, label: 'Nouveau', isActive: true, maxPassengers: 4 } } });
             }}
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-primary bg-primary/5 rounded-lg hover:bg-primary/10"
           >
@@ -276,8 +238,7 @@ function TariffForm({
                   <button
                     onClick={() => {
                       const { [vt]: _, ...rest } = config.vehicles;
-                      const { [vt]: __, ...restC } = config.consigne;
-                      setConfig({ ...config, vehicles: rest, consigne: restC });
+                      setConfig({ ...config, vehicles: rest });
                     }}
                     className="text-red-400 hover:text-red-600 p-1 rounded"
                     title="Supprimer"
@@ -285,7 +246,7 @@ function TariffForm({
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="grid grid-cols-5 gap-3">
+                <div className="grid grid-cols-6 gap-3">
                   <div>
                     <label className="block text-[10px] font-medium text-gray-500 mb-1">Prix/km ({sym})</label>
                     <input type="number" min={0} value={v.basePricePerKm} onChange={e => setVehicle(vt, 'basePricePerKm', +e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
@@ -303,6 +264,16 @@ function TariffForm({
                     <input type="number" min={1} max={20} value={v.maxPassengers ?? 4} onChange={e => setVehicle(vt, 'maxPassengers' as any, +e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                   </div>
                   <div>
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Commission % <span className="text-gray-400">(vide=global)</span></label>
+                    <input
+                      type="number" min={0} max={100} step={1}
+                      placeholder="Global"
+                      value={v.commissionRate != null ? Math.round(v.commissionRate * 100) : ''}
+                      onChange={e => setVehicle(vt, 'commissionRate' as any, e.target.value === '' ? undefined : parseFloat(e.target.value) / 100)}
+                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
                     <label className="block text-[10px] font-medium text-gray-500 mb-1">Aperçu 15km</label>
                     <div className="py-1.5">
                       <span className="font-semibold text-primary text-sm">{previewPrice(vt).toLocaleString()} {sym}</span>
@@ -310,74 +281,9 @@ function TariffForm({
                     </div>
                   </div>
                 </div>
-                {/* Consigne pour cette catégorie */}
-                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3">
-                  <Package className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                  <span className="text-xs text-gray-500">Consigne/jour :</span>
-                  <div className="relative w-32">
-                    <input type="number" min={0} step={500} value={config.consigne[vt]?.dailyRate ?? 5000}
-                      onChange={e => setConsigne(vt, +e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-8"
-                    />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">{sym}/j</span>
-                  </div>
-                </div>
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* Consigne — activation par pays */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center"><Package className="w-5 h-5 text-purple-500" /></div>
-            <div>
-              <h2 className="font-semibold text-gray-900">Service Consigne</h2>
-              <p className="text-xs text-gray-500">Laisser un véhicule à l'aéroport pendant un voyage</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setConfig({ ...config, consigneEnabled: !config.consigneEnabled })}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${config.consigneEnabled ? 'bg-purple-500' : 'bg-gray-200'}`}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${config.consigneEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-          </button>
-        </div>
-        {!config.consigneEnabled && (
-          <p className="mt-3 text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-            La consigne est désactivée pour ce pays — le bloc ne sera pas affiché dans l'app passager.
-          </p>
-        )}
-      </div>
-
-      {/* Surge config */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center"><Clock className="w-5 h-5 text-orange-500" /></div>
-          <div>
-            <h2 className="font-semibold text-gray-900">Surcharges dynamiques</h2>
-            <p className="text-xs text-gray-500">Multiplicateurs appliqués automatiquement selon le contexte</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-6 mb-6">
-          <NumberInput label="Nuit (22h–05h)" value={config.surge.nightMultiplier} onChange={v => setSurge('nightMultiplier', v)} suffix="×" step={0.05} min={1} />
-          <NumberInput label="Pluie" value={config.surge.rainMultiplier} onChange={v => setSurge('rainMultiplier', v)} suffix="×" step={0.05} min={1} />
-          <NumberInput label="Heure de pointe" value={config.surge.rushHourMultiplier} onChange={v => setSurge('rushHourMultiplier', v)} suffix="×" step={0.05} min={1} />
-        </div>
-        <div>
-          <p className="text-xs font-medium text-gray-500 mb-3 uppercase tracking-wide">Plages heures de pointe</p>
-          <div className="grid grid-cols-4 gap-4">
-            <TimeInput label="Pointe matin — début" value={config.surge.rushHourStart} onChange={v => setSurge('rushHourStart', v)} />
-            <TimeInput label="Pointe matin — fin"   value={config.surge.rushHourEnd}   onChange={v => setSurge('rushHourEnd', v)} />
-            <TimeInput label="Pointe soir — début"  value={config.surge.rushHourStart2} onChange={v => setSurge('rushHourStart2', v)} />
-            <TimeInput label="Pointe soir — fin"    value={config.surge.rushHourEnd2}   onChange={v => setSurge('rushHourEnd2', v)} />
-          </div>
-          <p className="text-xs text-gray-400 mt-3">
-            Exemple : si le prix de base est 5 000 {sym} et qu'il pleut + nuit → {Math.round(5000 * config.surge.rainMultiplier * config.surge.nightMultiplier).toLocaleString()} {sym}
-          </p>
         </div>
       </div>
 
@@ -811,8 +717,355 @@ function AppSettingsPanel() {
   );
 }
 
+// ── Payment Methods Panel ────────────────────────────────────────────────────
+
+const ALL_PROVIDERS = [
+  { id: 'orange_money', label: 'Orange Money', icon: 'smartphone' },
+  { id: 'mtn_momo',    label: 'MTN MoMo',     icon: 'smartphone' },
+  { id: 'cinetpay',    label: 'CinetPay',      icon: 'globe'      },
+  { id: 'flutterwave', label: 'Flutterwave',   icon: 'globe'      },
+  { id: 'stripe',      label: 'Stripe',        icon: 'card'       },
+  { id: 'mpesa',       label: 'M-Pesa',        icon: 'smartphone' },
+  { id: 'wave',        label: 'Wave',          icon: 'smartphone' },
+  { id: 'notchpay',    label: 'NotchPay',      icon: 'globe'      },
+  { id: 'paypal',      label: 'PayPal',        icon: 'card'       },
+];
+
+function ForfaitsPanel() {
+  const [packages, setPackages] = useState<number[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  const [newValue, setNewValue] = useState('');
+
+  useEffect(() => {
+    adminApi.getPointsPackages()
+      .then(res => setPackages(res.packages))
+      .catch(() => setPackages([1000, 3000, 5000, 10000]))
+      .then(() => setLoading(false), () => setLoading(false));
+  }, []);
+
+  const addPackage = () => {
+    const v = parseInt(newValue, 10);
+    if (isNaN(v) || v <= 0) return;
+    if (packages.includes(v)) { setNewValue(''); return; }
+    setPackages(prev => [...prev, v].sort((a, b) => a - b));
+    setNewValue('');
+    setSaved(false);
+  };
+
+  const removePackage = (v: number) => {
+    setPackages(prev => prev.filter(p => p !== v));
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true); setError('');
+    try {
+      const res = await adminApi.setPointsPackages(packages);
+      setPackages(res.packages);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: any) {
+      setError(e.message || 'Erreur sauvegarde');
+    } finally { setSaving(false); }
+  };
+
+  const LABEL_MAP: Record<number, string> = {
+    1000: 'Standard', 3000: 'Pack Argent', 5000: 'Pack Or', 10000: 'VIP Rewards',
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
+            <Package className="w-5 h-5 text-amber-500" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">Forfaits de recharge</h2>
+            <p className="text-xs text-gray-400">Montants en points proposés aux passagers</p>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="py-8 text-center text-sm text-gray-400">Chargement…</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-5">
+              {packages.map(pts => (
+                <div key={pts} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
+                  <div>
+                    <p className="text-sm font-bold text-primary">{pts.toLocaleString()} pts</p>
+                    <p className="text-xs text-gray-400">{LABEL_MAP[pts] ?? 'Forfait personnalisé'}</p>
+                  </div>
+                  <button
+                    onClick={() => removePackage(pts)}
+                    className="ml-2 p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <input
+                type="number"
+                min={1}
+                value={newValue}
+                onChange={e => setNewValue(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addPackage()}
+                placeholder="Ex: 2000"
+                className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <button
+                onClick={addPackage}
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-xl transition-all"
+              >
+                <Plus className="w-4 h-4" /> Ajouter
+              </button>
+            </div>
+
+            {error && <p className="text-sm text-red-500 mt-3">{error}</p>}
+
+            <button
+              onClick={handleSave}
+              disabled={saving || packages.length === 0}
+              className="mt-5 flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-all"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? 'Sauvegarde…' : saved ? '✓ Sauvegardé' : 'Sauvegarder les forfaits'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PaymentMethodsPanel() {
+  const [countries, setCountries] = useState<{ code: string; name: string; currency: string }[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState('');
+  const [methods, setMethods] = useState<{ id: string; label: string; icon: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [newCode, setNewCode] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newCurrency, setNewCurrency] = useState('XAF');
+  const [adding, setAdding] = useState(false);
+
+  const loadCountries = useCallback(async () => {
+    try {
+      const list = await adminApi.getAllCountries();
+      setCountries(list);
+      if (list.length > 0 && !selectedCountry) setSelectedCountry(list[0].code);
+    } catch { /* ignore */ }
+  }, [selectedCountry]);
+
+  useEffect(() => { loadCountries(); }, []);
+
+  const load = useCallback(async (cc: string) => {
+    if (!cc) return;
+    setLoading(true); setError('');
+    try {
+      const res = await adminApi.getCountryPaymentMethods(cc);
+      setMethods(res.methods ?? []);
+    } catch {
+      setMethods([]);
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { if (selectedCountry) load(selectedCountry); }, [selectedCountry, load]);
+
+  const handleAddCountry = async () => {
+    const code = newCode.trim().toUpperCase();
+    if (!code || !newName.trim()) return;
+    setAdding(true);
+    try {
+      await adminApi.createCountry(code, newName.trim(), newCurrency.trim() || 'XAF');
+      await loadCountries();
+      setSelectedCountry(code);
+      setShowAdd(false);
+      setNewCode(''); setNewName(''); setNewCurrency('XAF');
+    } catch (e: any) {
+      setError(e.message || 'Erreur ajout pays');
+    } finally { setAdding(false); }
+  };
+
+  const handleDeleteCountry = async (cc: string) => {
+    if (!confirm(`Supprimer le pays ${cc} ? Les méthodes de paiement associées seront perdues.`)) return;
+    try {
+      await adminApi.deleteCountry(cc);
+      const remaining = countries.filter(c => c.code !== cc);
+      setCountries(remaining);
+      setSelectedCountry(remaining[0]?.code ?? '');
+    } catch (e: any) {
+      setError(e.message || 'Erreur suppression pays');
+    }
+  };
+
+  const toggle = (provider: { id: string; label: string; icon: string }) => {
+    setMethods(prev =>
+      prev.find(m => m.id === provider.id)
+        ? prev.filter(m => m.id !== provider.id)
+        : [...prev, provider],
+    );
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true); setError('');
+    try {
+      await adminApi.setCountryPaymentMethods(selectedCountry, methods);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de la sauvegarde');
+    } finally { setSaving(false); }
+  };
+
+  const isEnabled = (id: string) => methods.some(m => m.id === id);
+
+  return (
+    <div className="space-y-6">
+      {/* Sélecteur pays */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+        <h2 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <Globe className="w-4 h-4 text-gray-400" /> Pays
+        </h2>
+        <div className="flex gap-2 flex-wrap items-center">
+          {countries.map(c => (
+            <div key={c.code} className="relative group">
+              <button
+                onClick={() => setSelectedCountry(c.code)}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                  selectedCountry === c.code
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                }`}
+              >
+                {KNOWN_COUNTRIES[c.code]?.flag ?? '🌍'} {c.code}
+              </button>
+              <button
+                onClick={() => handleDeleteCountry(c.code)}
+                className="absolute -top-1.5 -right-1.5 hidden group-hover:flex w-4 h-4 rounded-full bg-red-500 text-white text-[10px] items-center justify-center hover:bg-red-600"
+                title={`Supprimer ${c.code}`}
+              >✕</button>
+            </div>
+          ))}
+          {/* Bouton ajouter un pays */}
+          {!showAdd ? (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="px-3 py-2 rounded-xl text-sm font-semibold border border-dashed border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-all"
+            >+ Pays</button>
+          ) : (
+            <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-xl">
+              <input
+                value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase().slice(0,3))}
+                placeholder="CM" maxLength={3}
+                className="w-14 text-sm border border-gray-200 rounded-lg px-2 py-1 text-center font-mono uppercase"
+              />
+              <input
+                value={newName} onChange={e => setNewName(e.target.value)}
+                placeholder="Nom du pays"
+                className="w-32 text-sm border border-gray-200 rounded-lg px-2 py-1"
+              />
+              <input
+                value={newCurrency} onChange={e => setNewCurrency(e.target.value.toUpperCase().slice(0,3))}
+                placeholder="XAF" maxLength={3}
+                className="w-16 text-sm border border-gray-200 rounded-lg px-2 py-1 text-center font-mono uppercase"
+              />
+              <button
+                onClick={handleAddCountry} disabled={adding || !newCode || !newName}
+                className="px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
+              >{adding ? '…' : 'Ajouter'}</button>
+              <button onClick={() => { setShowAdd(false); setNewCode(''); setNewName(''); }}
+                className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Méthodes disponibles */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-6">
+        <h2 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
+          <CreditCard className="w-4 h-4 text-gray-400" />
+          Méthodes actives pour <span className="text-blue-600">{selectedCountry}</span>
+        </h2>
+        <p className="text-xs text-gray-400 mb-5">
+          Cochez les méthodes disponibles pour les utilisateurs de ce pays.
+        </p>
+
+        {loading
+          ? <div className="text-sm text-gray-400 py-4 text-center">Chargement…</div>
+          : (
+            <div className="space-y-2">
+              {ALL_PROVIDERS.map(provider => {
+                const active = isEnabled(provider.id);
+                const Icon = provider.icon === 'card' ? CreditCard : provider.icon === 'globe' ? Globe : Smartphone;
+                return (
+                  <div
+                    key={provider.id}
+                    onClick={() => toggle(provider)}
+                    className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      active
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-100 hover:border-gray-200 bg-gray-50'
+                    }`}
+                  >
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${active ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                      <Icon className={`w-5 h-5 ${active ? 'text-blue-600' : 'text-gray-400'}`} />
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-sm font-semibold ${active ? 'text-blue-900' : 'text-gray-700'}`}>
+                        {provider.label}
+                      </p>
+                      <p className="text-xs text-gray-400">{provider.id}</p>
+                    </div>
+                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                      active ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
+                    }`}>
+                      {active && <Check className="w-3.5 h-3.5 text-white" />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        }
+
+        {/* Méthodes actives résumé */}
+        {methods.length > 0 && (
+          <p className="text-xs text-blue-600 font-medium mt-4">
+            {methods.length} méthode{methods.length > 1 ? 's' : ''} active{methods.length > 1 ? 's' : ''} : {methods.map(m => m.label).join(', ')}
+          </p>
+        )}
+
+        {error && <p className="text-sm text-red-500 mt-3">{error}</p>}
+
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="mt-5 flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-all"
+        >
+          <Save className="w-4 h-4" />
+          {saving ? 'Sauvegarde…' : saved ? '✓ Sauvegardé' : 'Sauvegarder'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main TariffsPage ─────────────────────────────────────────────────────────
+
 export function TariffsPage() {
-  const [activeTab, setActiveTab] = useState<'tariffs' | 'settings'>('tariffs');
+  const [activeTab, setActiveTab] = useState<'tariffs' | 'settings' | 'payment' | 'forfaits'>('tariffs');
   // null = tarifs globaux, string = pays sélectionné
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [countries, setCountries] = useState<string[]>([]);
@@ -928,6 +1181,18 @@ export function TariffsPage() {
           >
             <span className="flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" />Paramètres</span>
           </button>
+          <button
+            onClick={() => setActiveTab('payment')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'payment' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <span className="flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5" />Paiement</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('forfaits')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'forfaits' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <span className="flex items-center gap-1.5"><Package className="w-3.5 h-3.5" />Forfaits</span>
+          </button>
         </div>
       </div>
 
@@ -937,6 +1202,10 @@ export function TariffsPage() {
           <EmailProviderPanel />
           <AppSettingsPanel />
         </div>
+      ) : activeTab === 'payment' ? (
+        <PaymentMethodsPanel />
+      ) : activeTab === 'forfaits' ? (
+        <ForfaitsPanel />
       ) : (
       <div className="flex gap-6">
         {/* Sidebar : liste des pays */}

@@ -3,10 +3,11 @@ import {
   Users, Search, UserCheck, Loader2, AlertCircle,
   ChevronLeft, ChevronRight, X, Download, Wallet,
   Star, Car, Ban, CheckCircle, ArrowUpCircle, ArrowDownCircle,
-  Phone, Mail, Hash, Calendar, TrendingUp,
+  Phone, Mail, Hash, Calendar, TrendingUp, Ticket, MapPin,
 } from 'lucide-react';
 import { adminApi } from '../services/api';
 import { Can } from '../components/Can';
+import { PageStats } from '../components/PageStats';
 
 const STATUS_BOOKING: Record<string, { label: string; className: string }> = {
   pending:           { label: 'En attente',  className: 'text-amber-600 bg-amber-50' },
@@ -57,7 +58,26 @@ export function UsersPage() {
   // Status toggle
   const [statusLoading, setStatusLoading] = useState(false);
 
-  const [exportLoading, setExportLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState<'csv' | 'excel' | 'pdf' | null>(null);
+
+  const handleExport = async (format: 'csv' | 'excel' | 'pdf') => {
+    try {
+      setExportLoading(format);
+      if (format === 'csv') {
+        await adminApi.downloadCsv('/admin/export/users', 'utilisateurs.csv');
+      } else if (format === 'excel') {
+        await adminApi.downloadFile(
+          '/admin/export/users/excel',
+          'utilisateurs.xlsx',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      } else {
+        await adminApi.downloadFile('/admin/export/users/pdf', 'utilisateurs.pdf', 'application/pdf');
+      }
+    } catch { /* ignore */ } finally {
+      setExportLoading(null);
+    }
+  };
 
   useEffect(() => { loadUsers(); }, [roleFilter, page]);
 
@@ -142,15 +162,33 @@ export function UsersPage() {
             <UserCheck className="w-3.5 h-3.5 text-blue-600" />
             <span className="text-xs font-semibold text-blue-600">{pagination.total} utilisateurs</span>
           </div>
-          <Can permission="view_stats">
-            <button
-              onClick={async () => { setExportLoading(true); try { await adminApi.downloadCsv('/admin/export/users', 'users.csv'); } catch {} finally { setExportLoading(false); } }}
-              disabled={exportLoading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              {exportLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              Exporter CSV
-            </button>
+          <Can permission="export_data">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => handleExport('csv')}
+                disabled={exportLoading !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {exportLoading === 'csv' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                CSV
+              </button>
+              <button
+                onClick={() => handleExport('excel')}
+                disabled={exportLoading !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {exportLoading === 'excel' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                XLSX
+              </button>
+              <button
+                onClick={() => handleExport('pdf')}
+                disabled={exportLoading !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {exportLoading === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                PDF
+              </button>
+            </div>
           </Can>
           <select
             value={roleFilter}
@@ -163,6 +201,8 @@ export function UsersPage() {
           </select>
         </div>
       </div>
+
+      <PageStats domain="users" title="Statistiques utilisateurs" />
 
       {/* ── Search ── */}
       <div className="relative mb-6">
@@ -325,15 +365,27 @@ export function UsersPage() {
                 <>
                   {/* Stats cards */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="bg-blue-50 rounded-xl p-3">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Wallet className="w-3.5 h-3.5 text-blue-500" />
-                        <span className="text-xs text-blue-500 font-medium">Wallet</span>
-                      </div>
-                      <p className="text-base font-bold text-blue-700">
-                        {detail?.wallet?.balance !== undefined ? fmt(Number(detail.wallet.balance)) : '—'} F
-                      </p>
-                    </div>
+                    {/* Pass d'accès */}
+                    {(() => {
+                      const exp = detail?.passExpiresAt ? new Date(detail.passExpiresAt) : null;
+                      const now = new Date();
+                      const active = exp && exp > now;
+                      const daysLeft = active ? Math.ceil((exp!.getTime() - now.getTime()) / 86400000) : 0;
+                      return (
+                        <div className={`rounded-xl p-3 ${active ? 'bg-green-50' : 'bg-red-50'}`}>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Ticket className={`w-3.5 h-3.5 ${active ? 'text-green-500' : 'text-red-400'}`} />
+                            <span className={`text-xs font-medium ${active ? 'text-green-600' : 'text-red-400'}`}>Pass</span>
+                          </div>
+                          <p className={`text-sm font-bold ${active ? 'text-green-700' : 'text-red-600'}`}>
+                            {active ? `✅ Actif` : '❌ Inactif'}
+                          </p>
+                          {active && <p className="text-xs text-green-500 mt-0.5">{daysLeft}j restants</p>}
+                          {!active && exp && <p className="text-xs text-red-400 mt-0.5">Expiré</p>}
+                          {!exp && <p className="text-xs text-red-400 mt-0.5">Non payé</p>}
+                        </div>
+                      );
+                    })()}
                     <div className="bg-amber-50 rounded-xl p-3">
                       <div className="flex items-center gap-1.5 mb-1">
                         <Star className="w-3.5 h-3.5 text-amber-500" />
@@ -368,6 +420,7 @@ export function UsersPage() {
                     {[
                       { icon: Phone, label: 'Téléphone', value: detail?.phone || selectedUser?.phone },
                       { icon: Mail, label: 'Email', value: detail?.email || selectedUser?.email || '—' },
+                      { icon: MapPin, label: 'Pays', value: detail?.countryCode || selectedUser?.countryCode || '—' },
                       { icon: TrendingUp, label: 'Code parrainage', value: detail?.referralCode || '—' },
                       { icon: Hash, label: 'ID', value: detail?.id || selectedUser?.id, mono: true },
                     ].map(({ icon: Icon, label, value, mono }) => (
@@ -381,6 +434,27 @@ export function UsersPage() {
                         </span>
                       </div>
                     ))}
+
+                    {/* Pass d'accès */}
+                    <div className="flex items-center justify-between px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <Ticket className="w-4 h-4 text-gray-400" />
+                        <span className="text-sm text-gray-500">Pass d'accès</span>
+                      </div>
+                      {(() => {
+                        const exp = detail?.passExpiresAt ? new Date(detail.passExpiresAt) : null;
+                        const active = exp && exp > new Date();
+                        return (
+                          <span className={`text-xs font-bold px-2 py-1 rounded-full ${active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                            {active
+                              ? `✅ Actif — expire le ${exp!.toLocaleDateString('fr-FR')}`
+                              : exp
+                                ? `⛔ Expiré le ${exp.toLocaleDateString('fr-FR')}`
+                                : '❌ Non payé'}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </div>
 
                   {/* Tabs */}

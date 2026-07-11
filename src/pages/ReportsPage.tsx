@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import {
   AlertTriangle, Search, Loader2, AlertCircle,
   ChevronLeft, ChevronRight, CheckCircle, XCircle,
-  X, Send, MessageSquare, RotateCcw, ImageIcon,
+  X, Send, MessageSquare, RotateCcw, ImageIcon, ShieldOff, Zap,
 } from 'lucide-react';
 import { adminApi } from '../services/api';
+import { PageStats } from '../components/PageStats';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -15,7 +16,24 @@ const statusConfig: Record<string, { label: string; classes: string }> = {
   dismissed:     { label: 'Rejeté',    classes: 'text-gray-500 bg-gray-100' },
 };
 
-type Msg = { id: string; senderRole: 'user' | 'admin'; message: string; imageUrl?: string | null; createdAt: string; sender: { name?: string } };
+// ── Logique de gravité (miroir du backend) ────────────────────────────────────
+type Severity = 'minor' | 'moderate' | 'major';
+const CATEGORY_SEVERITY: Record<string, Severity> = {
+  'Propreté du véhicule': 'minor', 'Retard important': 'minor', 'Problème technique': 'minor',
+  'Autre problème': 'minor', 'Problème avec le prix': 'moderate', 'Problème de paiement': 'moderate',
+  'Comportement du chauffeur': 'major', 'Comportement du passager': 'major', 'Accident / Incident': 'major',
+};
+const SANCTIONS_BY_SEVERITY = {
+  minor:    { label: 'Mineur',   color: 'text-amber-600 bg-amber-50 border-amber-200',    points: 100, score: 0.1, days: 1 },
+  moderate: { label: 'Modéré',   color: 'text-orange-600 bg-orange-50 border-orange-200', points: 250, score: 0.3, days: 3 },
+  major:    { label: 'Majeur',   color: 'text-red-600 bg-red-50 border-red-200',           points: 500, score: 0.5, days: 7 },
+};
+function getSeverity(reason: string): Severity {
+  const category = reason.split(':')[0].trim();
+  return CATEGORY_SEVERITY[category] ?? 'minor';
+}
+
+type Msg = { id: string; senderRole: 'user' | 'admin' | 'system'; message: string; imageUrl?: string | null; createdAt: string; sender: { name?: string } };
 type Report = {
   id: string; reason: string; status: string; resolution?: string; createdAt: string;
   reporter: { id: string; name?: string; phone?: string };
@@ -24,6 +42,7 @@ type Report = {
 };
 
 type ResolveModal = { id: string; action: 'resolved' | 'dismissed' } | null;
+type RevokeState = { liftSuspension: boolean; restorePoints: boolean; restoreScore: boolean };
 
 export function ReportsPage() {
   const [reports, setReports] = useState<Report[]>([]);
@@ -47,6 +66,10 @@ export function ReportsPage() {
   // Resolve modal
   const [resolveModal, setResolveModal] = useState<ResolveModal>(null);
   const [resolution, setResolution] = useState('');
+
+  // Revoke sanctions
+  const [revokeState, setRevokeState] = useState<RevokeState>({ liftSuspension: false, restorePoints: false, restoreScore: false });
+  const [revokeLoading, setRevokeLoading] = useState(false);
 
   useEffect(() => { loadReports(); }, [statusFilter, page]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [selected?.messages?.length]);
@@ -155,6 +178,26 @@ export function ReportsPage() {
     }
   };
 
+  const handleRevoke = async () => {
+    if (!selected || revokeLoading) return;
+    if (!revokeState.liftSuspension && !revokeState.restorePoints && !revokeState.restoreScore) {
+      alert('Sélectionnez au moins une action');
+      return;
+    }
+    try {
+      setRevokeLoading(true);
+      const result = await adminApi.revokeSanctions(selected.id, revokeState);
+      alert(result.message || 'Sanctions mises à jour');
+      const fresh = await adminApi.getReportById(selected.id);
+      setSelected(fresh as Report);
+      setRevokeState({ liftSuspension: false, restorePoints: false, restoreScore: false });
+    } catch (e: any) {
+      alert(e.message || 'Erreur');
+    } finally {
+      setRevokeLoading(false);
+    }
+  };
+
   const filteredReports = search
     ? reports.filter(r =>
         (r.reason || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -195,6 +238,8 @@ export function ReportsPage() {
             </select>
           </div>
         </div>
+
+        <PageStats domain="reports" title="Statistiques signalements" />
 
         <div className="relative mb-6">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -343,6 +388,13 @@ export function ReportsPage() {
             </div>
 
             {(selected.messages ?? []).map(msg => {
+              if (msg.senderRole === 'system') {
+                return (
+                  <div key={msg.id} className="flex justify-center">
+                    <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full text-center max-w-[90%]">{msg.message}</span>
+                  </div>
+                );
+              }
               const isAdmin = msg.senderRole === 'admin';
               return (
                 <div key={msg.id} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
@@ -374,6 +426,44 @@ export function ReportsPage() {
                 {selected.resolution}
               </div>
             )}
+
+            {selected.status === 'resolved' && selected.reported && (() => {
+              const sev = getSeverity(selected.reason);
+              const s = SANCTIONS_BY_SEVERITY[sev];
+              return (
+                <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldOff className="w-4 h-4 text-gray-400" />
+                    <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Atténuer les sanctions</p>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${s.color}`}>{s.label}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {[
+                      { key: 'liftSuspension' as keyof RevokeState, label: `Lever la suspension (${s.days}j)` },
+                      { key: 'restorePoints' as keyof RevokeState, label: `Restaurer les points (+${s.points} pts)` },
+                      { key: 'restoreScore' as keyof RevokeState, label: `Restaurer le score (+${s.score}⭐)` },
+                    ].map(({ key, label }) => (
+                      <label key={key} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={revokeState[key]}
+                          onChange={e => setRevokeState(prev => ({ ...prev, [key]: e.target.checked }))}
+                          className="rounded"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    onClick={handleRevoke}
+                    disabled={revokeLoading || (!revokeState.liftSuspension && !revokeState.restorePoints && !revokeState.restoreScore)}
+                    className="w-full flex items-center justify-center text-xs font-medium text-white bg-gray-600 hover:bg-gray-700 disabled:opacity-40 px-3 py-2 rounded-lg cursor-pointer disabled:cursor-default transition-colors"
+                  >
+                    {revokeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Appliquer les atténuations'}
+                  </button>
+                </div>
+              );
+            })()}
 
             <div ref={messagesEndRef} />
           </div>
@@ -449,6 +539,23 @@ export function ReportsPage() {
               rows={4}
               className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
+            {resolveModal.action === 'resolved' && selected?.reported && (() => {
+              const sev = getSeverity(selected.reason);
+              const s = SANCTIONS_BY_SEVERITY[sev];
+              return (
+                <div className={`mt-3 p-3 rounded-xl border text-xs space-y-1.5 ${s.color}`}>
+                  <div className="flex items-center gap-2 font-semibold">
+                    <Zap className="w-3.5 h-3.5" />
+                    Sanctions automatiques — gravité {s.label}
+                  </div>
+                  <ul className="space-y-0.5 pl-5 list-disc">
+                    <li>-{s.points} points à {selected.reported.name || selected.reported.phone}</li>
+                    <li>-{s.score}⭐ sur le score chauffeur</li>
+                    <li>Suspension {s.days} jour(s)</li>
+                  </ul>
+                </div>
+              );
+            })()}
             <div className="flex gap-3 mt-4">
               <button onClick={closeModal} className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 cursor-pointer">
                 Annuler

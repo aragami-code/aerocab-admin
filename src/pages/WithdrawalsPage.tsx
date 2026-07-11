@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { adminApi } from '../services/api';
 import { Can } from '../components/Can';
+import { PageStats } from '../components/PageStats';
 
 const STATUS_CONFIG: Record<string, { label: string; classes: string; dot: string }> = {
   pending:  { label: 'En attente', classes: 'text-amber-700 bg-amber-100',   dot: 'bg-amber-400' },
@@ -82,10 +83,18 @@ export function WithdrawalsPage() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = async (format: 'csv' | 'excel') => {
     try {
       setExportLoading(true);
-      await adminApi.downloadCsv('/admin/export/withdrawals', 'withdrawals.csv');
+      if (format === 'csv') {
+        await adminApi.downloadCsv('/admin/export/withdrawals', 'retraits.csv');
+      } else {
+        await adminApi.downloadFile(
+          '/admin/export/withdrawals/excel',
+          'retraits.xlsx',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      }
     } catch { /* ignore */ } finally {
       setExportLoading(false);
     }
@@ -120,15 +129,25 @@ export function WithdrawalsPage() {
             Suivi des versements, montants dus et état des retraits chauffeurs.
           </p>
         </div>
-        <Can permission="view_withdrawals">
-          <button
-            onClick={handleExport}
-            disabled={exportLoading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {exportLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-            Exporter CSV
-          </button>
+        <Can permission="export_data">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => handleExport('csv')}
+              disabled={exportLoading}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {exportLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              CSV
+            </button>
+            <button
+              onClick={() => handleExport('excel')}
+              disabled={exportLoading}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {exportLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              XLSX
+            </button>
+          </div>
         </Can>
       </div>
 
@@ -170,6 +189,8 @@ export function WithdrawalsPage() {
           <AlertCircle size={16} /><span className="text-sm">{error}</span>
         </div>
       )}
+
+      <PageStats domain="withdrawals" title="Statistiques retraits" />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Table */}

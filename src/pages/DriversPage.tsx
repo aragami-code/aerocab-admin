@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Car, Search, Clock, CheckCircle, XCircle, Loader2, AlertCircle,
   ChevronLeft, ChevronRight, Eye, ShieldCheck, ShieldX, ArrowLeft,
-  FileText, AlertTriangle, User, MapPin, Phone, Mail, ExternalLink,
+  FileText, AlertTriangle, User, MapPin, Phone, Mail, ExternalLink, X,
 } from 'lucide-react';
 import { adminApi } from '../services/api';
+import { PageStats } from '../components/PageStats';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -16,13 +17,22 @@ const statusConfig = {
 };
 
 const DOC_CONFIG: Record<string, { label: string; desc: string; kycKey: string }> = {
-  cni_front:     { label: 'CNI recto / verso',   desc: 'Nom lisible, photo visible',       kycKey: 'Identité' },
-  cni_back:      { label: 'CNI verso',            desc: 'Dos de la carte',                  kycKey: 'Identité' },
-  license:       { label: 'Permis de conduire',   desc: 'Validité et identité',             kycKey: 'Permis' },
-  registration:  { label: 'Carte grise',          desc: 'Plaque et modèle cohérents',       kycKey: 'Véhicule' },
-  vehicle_photo: { label: 'Photo du véhicule',    desc: 'Vue extérieure claire',            kycKey: 'Véhicule' },
-  selfie:        { label: 'Selfie avec CNI',      desc: 'Visage visible et cohérent',       kycKey: 'Selfie' },
-  criminal_record:{ label: 'Casier judiciaire',   desc: 'Ajouté par le chauffeur',          kycKey: 'Casier' },
+  cni_front:           { label: 'CNI recto / verso',        desc: 'Nom lisible, photo visible',                    kycKey: 'Identité' },
+  cni_back:            { label: 'CNI verso',                desc: 'Dos de la carte',                               kycKey: 'Identité' },
+  passport:            { label: 'Passeport',                desc: 'Passeport en cours de validité',                kycKey: 'Identité' },
+  portrait:            { label: 'Photo portrait',           desc: 'Selfie face caméra, fond neutre',               kycKey: 'Selfie' },
+  selfie:              { label: 'Selfie avec CNI',          desc: 'Visage visible et cohérent',                    kycKey: 'Selfie' },
+  license:             { label: 'Permis de conduire',       desc: 'Validité et identité',                          kycKey: 'Permis' },
+  vtc_license:         { label: 'Autorisation VTC',         desc: 'Autorisation officielle de transport VTC',       kycKey: 'Permis' },
+  registration:        { label: 'Carte grise',              desc: 'Plaque et modèle cohérents',                    kycKey: 'Véhicule' },
+  vehicle_photo:       { label: 'Photo du véhicule',        desc: 'Vue extérieure claire',                         kycKey: 'Véhicule' },
+  insurance:           { label: 'Assurance',                desc: 'Attestation couvrant le transport de personnes', kycKey: 'Véhicule' },
+  technical_control:   { label: 'Contrôle technique',      desc: 'Contrôle technique en cours de validité',        kycKey: 'Véhicule' },
+  criminal_record:     { label: 'Casier judiciaire',        desc: 'Bulletin n°3 de moins de 3 mois',               kycKey: 'Casier' },
+  proof_of_address:    { label: 'Justificatif de domicile', desc: 'Facture ou relevé de moins de 3 mois',           kycKey: 'Autre' },
+  medical_certificate: { label: 'Certificat médical',       desc: 'Aptitude à la conduite',                        kycKey: 'Autre' },
+  vaccination_card:    { label: 'Carte de vaccination',     desc: 'Carnet de vaccination à jour',                   kycKey: 'Autre' },
+  border_pass:         { label: 'Laissez-passer frontalier',desc: 'Document frontalier valide',                     kycKey: 'Autre' },
 };
 
 const DOC_STATUS_BADGE: Record<string, string> = {
@@ -38,7 +48,9 @@ const DOC_STATUS_LABEL: Record<string, string> = {
 
 async function openProtectedDoc(fileUrl: string) {
   const token = localStorage.getItem('admin_token');
-  const res = await fetch(fileUrl, { headers: { Authorization: `Bearer ${token}` } });
+  const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/api$/, '');
+  const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${apiBase}${fileUrl}`;
+  const res = await fetch(fullUrl, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error('Fichier introuvable');
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
@@ -48,15 +60,48 @@ async function openProtectedDoc(fileUrl: string) {
 
 // ── Composant : card document ─────────────────────────────────────────────────
 
-function DocCard({ doc, onApprove, onReject }: {
+function DocCard({ doc, onApprove, onReject, required }: {
   doc: any;
   onApprove: () => void;
   onReject: () => void;
+  required?: boolean;
 }) {
   const cfg = DOC_CONFIG[doc.type] ?? { label: doc.type, desc: '', kycKey: '' };
   const status = doc.status ?? 'pending';
   const isImg = doc.fileUrl && !doc.fileUrl.endsWith('.pdf');
   const [opening, setOpening] = useState(false);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; isPdf: boolean } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  useEffect(() => {
+    if (!isImg || !doc.fileUrl) return;
+    const token = localStorage.getItem('admin_token');
+    const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/api$/, '');
+    const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `${apiBase}${doc.fileUrl}`;
+    fetch(fullUrl, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => { if (blob) setThumbUrl(URL.createObjectURL(blob)); })
+      .catch(() => {});
+  }, [doc.fileUrl, isImg]);
+
+  const handlePreview = async () => {
+    if (!doc.fileUrl || loadingPreview) return;
+    try {
+      setLoadingPreview(true);
+      const token = localStorage.getItem('admin_token');
+      const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/api$/, '');
+      const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `${apiBase}${doc.fileUrl}`;
+      const res = await fetch(fullUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Fichier introuvable');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setPreview({ url, isPdf: doc.fileUrl.endsWith('.pdf') });
+    } catch (e: any) {
+      alert('Impossible de précharger le document : ' + e.message);
+    } finally {
+      setLoadingPreview(false); }
+  };
 
   const handleOpen = async () => {
     if (!doc.fileUrl) return;
@@ -71,83 +116,119 @@ function DocCard({ doc, onApprove, onReject }: {
   };
 
   return (
-    <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
-      status === 'approved' ? 'border-emerald-200' :
-      status === 'rejected' ? 'border-red-200' : 'border-gray-200'
-    }`}>
-      {/* Thumbnail */}
-      <div className="relative h-40 bg-gray-100 flex flex-col items-center justify-center gap-2">
-        {isImg ? (
-          <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-            <FileText className="w-10 h-10 text-gray-400" />
+    <>
+      {/* Modal aperçu */}
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreview(null)}>
+          <div className="relative bg-white rounded-2xl overflow-hidden shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <p className="text-sm font-semibold text-gray-800">{cfg.label}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleOpen}
+                  disabled={opening}
+                  className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/30 px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors disabled:opacity-50"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Ouvrir
+                </button>
+                <button onClick={() => setPreview(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto bg-gray-50 min-h-0">
+              {preview.isPdf ? (
+                <iframe src={preview.url} className="w-full h-full min-h-[70vh]" title={cfg.label} />
+              ) : (
+                <img src={preview.url} alt={cfg.label} className="max-w-full max-h-[70vh] mx-auto object-contain" />
+              )}
+            </div>
           </div>
-        ) : (
-          <FileText className="w-10 h-10 text-gray-400" />
-        )}
-        {doc.fileUrl && (
-          <button
-            onClick={handleOpen}
-            disabled={opening}
-            className="absolute bottom-2 right-2 flex items-center gap-1 text-[10px] font-medium text-primary bg-white border border-primary/20 px-2 py-1 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            <ExternalLink className="w-3 h-3" />
-            {opening ? '…' : 'Aperçu document'}
-          </button>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="p-3 bg-white">
-        <div className="flex items-start justify-between mb-1">
-          <p className="text-sm font-semibold text-gray-900 leading-tight">{cfg.label}</p>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ml-2 ${DOC_STATUS_BADGE[status]}`}>
-            {DOC_STATUS_LABEL[status]}
-          </span>
         </div>
-        <p className="text-xs text-gray-400 mb-3">{cfg.desc}</p>
+      )}
 
-        {doc.rejectionReason && (
-          <p className="text-xs text-red-500 italic mb-2">↳ {doc.rejectionReason}</p>
-        )}
-
-        <div className="flex gap-2">
-          {status !== 'approved' && (
-            <button
-              onClick={onApprove}
-              className="flex-1 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors cursor-pointer"
-            >
-              Approuver
-            </button>
+      <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
+        status === 'approved' ? 'border-emerald-200' :
+        status === 'rejected' ? 'border-red-200' : 'border-gray-200'
+      }`}>
+        {/* Thumbnail */}
+        <div className="relative h-40 bg-gray-100 flex flex-col items-center justify-center gap-2">
+          {thumbUrl ? (
+            <img src={thumbUrl} alt={cfg.label} className="w-full h-full object-cover" />
+          ) : isImg ? (
+            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+              <FileText className="w-10 h-10 text-gray-400" />
+            </div>
+          ) : (
+            <FileText className="w-10 h-10 text-gray-400" />
           )}
-          {status !== 'rejected' && (
+          {doc.fileUrl && (
             <button
-              onClick={onReject}
-              className="flex-1 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors cursor-pointer"
+              onClick={handlePreview}
+              disabled={loadingPreview}
+              className="absolute bottom-2 right-2 flex items-center gap-1 text-[10px] font-medium text-primary bg-white border border-primary/20 px-2 py-1 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer disabled:opacity-50"
             >
-              Rejeter
-            </button>
-          )}
-          {status === 'approved' && (
-            <button
-              onClick={onReject}
-              className="flex-1 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors cursor-pointer"
-            >
-              Annuler
+              <Eye className="w-3 h-3" />
+              {loadingPreview ? 'Chargement…' : 'Aperçu document'}
             </button>
           )}
         </div>
 
-        {doc.fileUrl && (
-          <button
-            onClick={handleOpen}
-            disabled={opening}
-            className="mt-2 w-full py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            Ouvrir
-          </button>
-        )}
+        {/* Footer */}
+        <div className="p-3 bg-white">
+          <div className="flex items-start justify-between mb-1">
+            <p className="text-sm font-semibold text-gray-900 leading-tight">{cfg.label}</p>
+            <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+              {required !== undefined && (
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap ${
+                  required ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'
+                }`}>
+                  {required ? 'Obligatoire' : 'Facultatif'}
+                </span>
+              )}
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${DOC_STATUS_BADGE[status]}`}>
+                {DOC_STATUS_LABEL[status]}
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mb-3">{cfg.desc}</p>
+
+          {doc.rejectionReason && (
+            <p className="text-xs text-red-500 italic mb-2">↳ {doc.rejectionReason}</p>
+          )}
+
+          <div className="flex gap-2">
+            {status !== 'approved' && (
+              <button onClick={onApprove} className="flex-1 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors cursor-pointer">
+                Approuver
+              </button>
+            )}
+            {status !== 'rejected' && (
+              <button onClick={onReject} className="flex-1 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors cursor-pointer">
+                Rejeter
+              </button>
+            )}
+            {status === 'approved' && (
+              <button onClick={onReject} className="flex-1 py-1.5 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors cursor-pointer">
+                Annuler
+              </button>
+            )}
+          </div>
+
+          {doc.fileUrl && (
+            <button
+              onClick={handleOpen}
+              disabled={opening}
+              className="mt-2 w-full py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              {opening ? 'Ouverture…' : 'Ouvrir'}
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -164,6 +245,17 @@ function DriverKycDetail({ driver: initialDriver, onBack, onRefresh }: {
   const [rejectDocModal, setRejectDocModal] = useState<{ docId: string } | null>(null);
   const [rejectDocReason, setRejectDocReason] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
+  const [docConfig, setDocConfig] = useState<Record<string, { required: boolean }>>({});
+
+  useEffect(() => {
+    adminApi.getDriverDocumentConfig()
+      .then(res => {
+        const map: Record<string, { required: boolean }> = {};
+        res.documents.forEach(d => { map[d.type] = { required: d.required }; });
+        setDocConfig(map);
+      })
+      .catch(() => {});
+  }, []);
 
   const name = driver.user?.name || 'Sans nom';
   const phone = driver.user?.phone || '--';
@@ -212,7 +304,7 @@ function DriverKycDetail({ driver: initialDriver, onBack, onRefresh }: {
   };
 
   // KYC checklist résumé
-  const kycGroups = ['Identité', 'Permis', 'Véhicule', 'Selfie', 'Casier'];
+  const kycGroups = ['Identité', 'Selfie', 'Permis', 'Véhicule', 'Casier', 'Autre'];
   const kycStatus = (group: string) => {
     const docs = (driver.documents || []).filter((d: any) =>
       DOC_CONFIG[d.type]?.kycKey === group
@@ -301,26 +393,75 @@ function DriverKycDetail({ driver: initialDriver, onBack, onRefresh }: {
 
         {/* Left — Documents 2×2 */}
         <div className="lg:col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-gray-900">Documents à vérifier</h3>
-            <span className="text-xs text-gray-400 font-medium">KYC</span>
-          </div>
-          {driver.documents && driver.documents.length > 0 ? (
-            <div className="grid grid-cols-2 gap-4">
-              {driver.documents.map((doc: any) => (
-                <DocCard
-                  key={doc.id}
-                  doc={doc}
-                  onApprove={() => handleDocApprove(doc.id)}
-                  onReject={() => setRejectDocModal({ docId: doc.id })}
-                />
-              ))}
+          {(() => {
+            const uploadedMap: Record<string, any> = {};
+            (driver.documents || []).forEach((d: any) => { uploadedMap[d.type] = d; });
+
+            // Types configurés dans l'admin (docConfig) + types déjà uploadés
+            const configuredTypes = Object.keys(docConfig);
+            const uploadedTypes = Object.keys(uploadedMap);
+            const allTypes = Array.from(new Set([...configuredTypes, ...uploadedTypes]));
+            const submittedCount = uploadedTypes.length;
+            const totalCount = allTypes.length;
+            const verifiedCount = (driver.documents || []).filter((d: any) => d.status === 'approved').length;
+
+            return (<>
+            {/* Header avec compteurs */}
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900">Documents à vérifier</h3>
+              <div className="flex items-center gap-2">
+                {verifiedCount > 0 && (
+                  <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+                    {verifiedCount} vérifié{verifiedCount > 1 ? 's' : ''}
+                  </span>
+                )}
+                <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                  {submittedCount} / {totalCount} soumis
+                </span>
+                <span className="text-xs text-gray-400 font-medium">KYC</span>
+              </div>
             </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
-              Aucun document soumis
-            </div>
-          )}
+
+            {allTypes.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center text-sm text-gray-400">
+                Aucun document configuré ni soumis
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {allTypes.map((type) => {
+                  const doc = uploadedMap[type];
+                  if (doc) {
+                    return (
+                      <DocCard
+                        key={doc.id}
+                        doc={doc}
+                        onApprove={() => handleDocApprove(doc.id)}
+                        onReject={() => setRejectDocModal({ docId: doc.id })}
+                        required={docConfig[type]?.required}
+                      />
+                    );
+                  }
+                  // Document configuré mais non uploadé
+                  const cfg = DOC_CONFIG[type];
+                  const label = cfg?.label ?? type;
+                  const required = docConfig[type]?.required;
+                  return (
+                    <div key={type} className="bg-white rounded-2xl border border-dashed border-gray-200 p-4 flex flex-col gap-2 opacity-60">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-gray-300" />
+                        <span className="text-sm font-semibold text-gray-500">{label}</span>
+                        {required && (
+                          <span className="ml-auto text-[10px] font-bold bg-red-50 text-red-400 px-2 py-0.5 rounded-full">Obligatoire</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400 italic">Non soumis</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            </>);
+          })()}
         </div>
 
         {/* Right — Infos + KYC checklist */}
@@ -339,6 +480,7 @@ function DriverKycDetail({ driver: initialDriver, onBack, onRefresh }: {
                 { icon: Mail,  label: 'Email',         value: email },
                 { icon: Car,   label: 'Véhicule',      value: vehicle },
                 { icon: FileText, label: 'Plaque',     value: plate },
+                { icon: MapPin, label: 'Pays',         value: driver.countryCode ?? '--' },
               ].map(({ label, value }) => (
                 <div key={label} className="bg-gray-50 rounded-xl p-3">
                   <p className="text-[10px] text-gray-400 mb-1">{label}</p>
@@ -365,7 +507,6 @@ function DriverKycDetail({ driver: initialDriver, onBack, onRefresh }: {
                   try {
                     await adminApi.updateDriverProfile(driver.id, {
                       driverType: driver.driverType,
-                      consigneEnabled: driver.consigneEnabled,
                     });
                   } catch (e: any) { alert(e.message); }
                   finally { setProfileSaving(false); }
@@ -387,11 +528,12 @@ function DriverKycDetail({ driver: initialDriver, onBack, onRefresh }: {
               {kycGroups.map((group) => {
                 const s = kycStatus(group);
                 const desc: Record<string, string> = {
-                  Identité: 'CNI conforme aux infos du profil',
-                  Permis:   'Validité et identité vérifiées',
-                  Véhicule: 'Carte grise et plaque cohérentes',
+                  Identité: 'CNI ou passeport conforme',
                   Selfie:   'Visage visible et cohérent',
-                  Casier:   'Ajouté par le chauffeur',
+                  Permis:   'Validité et identité vérifiées',
+                  Véhicule: 'Carte grise, assurance, contrôle technique',
+                  Casier:   'Bulletin n°3 de moins de 3 mois',
+                  Autre:    'Documents complémentaires',
                 };
                 return (
                   <div key={group} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
@@ -621,6 +763,8 @@ export function DriversPage() {
       </div>
 
       {/* Filters + Search */}
+      <PageStats domain="drivers" title="Statistiques chauffeurs" />
+
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Plus, Tag, Trash2, ToggleLeft, ToggleRight, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { adminApi, PromoCode } from '../services/api';
+import { PageStats } from '../components/PageStats';
 
-const EMPTY_FORM = { code: '', discount: 10, maxUses: 100, expiresAt: '', usagePerUser: false };
+const EMPTY_FORM = { code: '', discount: 10, maxUses: 100, expiresAt: '', usagePerUser: false, countryCode: '' };
 
 export function PromosPage() {
   const [promos, setPromos] = useState<PromoCode[]>([]);
@@ -15,6 +16,13 @@ export function PromosPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [countries, setCountries] = useState<{ code: string; name: string }[]>([]);
+
+  useEffect(() => {
+    adminApi.getAllCountries()
+      .then(list => setCountries(list.map(c => ({ code: c.code, name: c.name }))))
+      .catch(() => { /* dropdown limité à Global si indisponible */ });
+  }, []);
 
   const fetchPromos = async (p = page) => {
     setLoading(true);
@@ -47,6 +55,7 @@ export function PromosPage() {
         maxUses: form.maxUses,
         expiresAt: form.expiresAt || undefined,
         usagePerUser: form.usagePerUser,
+        countryCode: form.countryCode || undefined,
       });
       setForm(EMPTY_FORM);
       setShowForm(false);
@@ -118,6 +127,8 @@ export function PromosPage() {
         </div>
       )}
 
+      <PageStats domain="promos" title="Statistiques codes promo" />
+
       {/* Create form */}
       {showForm && (
         <div className="bg-white rounded-2xl border border-gray-200 p-6">
@@ -162,6 +173,20 @@ export function PromosPage() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Pays</label>
+              <select
+                value={form.countryCode}
+                onChange={e => setForm(f => ({ ...f, countryCode: e.target.value }))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                <option value="">🌍 Global — tous les pays</option>
+                {countries.map(c => (
+                  <option key={c.code} value={c.code}>{c.name} ({c.code})</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-400 mt-1">Un code rattaché à un pays n'est valable que pour les utilisateurs de ce pays.</p>
+            </div>
             <div className="col-span-2 flex items-center gap-2">
               <input
                 type="checkbox"
@@ -204,7 +229,7 @@ export function PromosPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Code', 'Remise', 'Utilisations', 'Expiration', 'Type', 'Statut', 'Actions'].map(h => (
+                  {['Code', 'Pays', 'Remise', 'Utilisations', 'Expiration', 'Type', 'Statut', 'Actions'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -218,6 +243,11 @@ export function PromosPage() {
                         <span className="font-mono font-bold text-primary tracking-widest text-xs bg-primary/8 px-2 py-1 rounded-md">
                           {promo.code}
                         </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {promo.countryCode
+                          ? <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">{promo.countryCode}</span>
+                          : <span className="text-xs text-gray-400">🌍 Global</span>}
                       </td>
                       <td className="py-3 px-4">
                         <span className="font-semibold text-accent">{promo.discount} pts</span>

@@ -1,17 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ToggleLeft, Smartphone, Car, Shield } from 'lucide-react';
+import { RefreshCw, ToggleLeft, Smartphone, Car, Shield, Plane } from 'lucide-react';
 import { adminApi } from '../services/api';
+import { useCountry } from '../contexts/CountryContext';
+import { resolveScopedSetting, scopedKey } from '../lib/scopedSetting';
 
 interface FeatureFlag {
   key: string;
   label: string;
   description: string;
-  category: 'passenger' | 'driver' | 'shared';
+  category: 'passenger' | 'driver' | 'shared' | 'workflow';
   enabled: boolean;
+  overridden: boolean;
   saving: boolean;
 }
 
-const FLAG_DEFS: Omit<FeatureFlag, 'enabled' | 'saving'>[] = [
+const FLAG_DEFS: Omit<FeatureFlag, 'enabled' | 'overridden' | 'saving'>[] = [
   // Passager
   { key: 'feature_referral_enabled',           label: 'Parrainage',               description: 'Code parrainage, bonus filleul/parrain',        category: 'passenger' },
   { key: 'feature_cashback_enabled',           label: 'Cashback points',           description: 'Points offerts après chaque course complétée',  category: 'passenger' },
@@ -20,18 +23,23 @@ const FLAG_DEFS: Omit<FeatureFlag, 'enabled' | 'saving'>[] = [
   { key: 'feature_destination_change_enabled', label: 'Modifier destination',      description: 'Passager peut changer de destination en cours',  category: 'passenger' },
   // Chauffeur
   { key: 'feature_driver_withdrawal_enabled',  label: 'Retrait wallet',            description: 'Chauffeur peut demander un retrait de son solde',category: 'driver' },
-  { key: 'feature_consigne_enabled',           label: 'Mode consigne',             description: 'Offre consigne (garde-bagages multi-jours)',     category: 'driver' },
   { key: 'feature_breakdown_report_enabled',   label: 'Signalement panne',         description: 'Bouton "Panne" dans l\'app chauffeur',           category: 'driver' },
   // Partagé (passager + chauffeur)
   { key: 'feature_chat_enabled',               label: 'Chat in-app',               description: 'Messagerie passager ↔ chauffeur pendant la course', category: 'shared' },
   { key: 'feature_sos_enabled',                label: 'Bouton SOS',                description: 'Alerte urgence dans les apps passager et chauffeur', category: 'shared' },
   { key: 'feature_rating_enabled',             label: 'Notation',                  description: 'Écran de notation après chaque course',          category: 'shared' },
+  { key: 'forfait_required_for_airport',       label: 'Forfait obligatoire aéroport', description: 'Refuse les réservations ARRIVAL/DEPARTURE si aucun forfait ne couvre la zone — désactive le kilométrage pour les trajets aéroport', category: 'shared' },
+  // Workflows
+  { key: 'workflow_arrival_enabled',       label: 'Workflow Arrivée',       description: 'Réservations ARRIVAL (passager arrive à l’aéroport)',  category: 'workflow' },
+  { key: 'workflow_departure_enabled',     label: 'Workflow Départ',        description: 'Réservations DEPARTURE (passager part vers l’aéroport)', category: 'workflow' },
+  { key: 'workflow_international_enabled',  label: 'Workflow International',  description: 'Réservations INTERNATIONAL (vol entrant). Affichage app global ; gate par pays de destination côté backend.', category: 'workflow' },
 ];
 
 const CATEGORY_META = {
   passenger: { label: 'App Passager',         icon: Smartphone, color: 'text-blue-600',  bg: 'bg-blue-50',  border: 'border-blue-200' },
   driver:    { label: 'App Chauffeur',         icon: Car,        color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' },
   shared:    { label: 'Commun (Passager + Chauffeur)', icon: Shield, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' },
+  workflow:  { label: 'Workflows',                      icon: Plane,  color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200' },
 };
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -49,8 +57,9 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
 }
 
 export function FeatureFlagsPage() {
+  const { selected } = useCountry();
   const [flags, setFlags] = useState<FeatureFlag[]>(
-    FLAG_DEFS.map(f => ({ ...f, enabled: true, saving: false }))
+    FLAG_DEFS.map(f => ({ ...f, enabled: true, overridden: false, saving: false }))
   );
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
@@ -63,25 +72,29 @@ export function FeatureFlagsPage() {
   const load = useCallback(async () => {
     try {
       const settings = await adminApi.getSettings();
-      setFlags(FLAG_DEFS.map(f => ({
-        ...f,
-        enabled: settings[f.key] !== 'false',
-        saving: false,
-      })));
+      setFlags(FLAG_DEFS.map(f => {
+        const { value, overridden } = resolveScopedSetting(settings, f.key, selected, 'true');
+        return {
+          ...f,
+          enabled: value === 'true',
+          overridden,
+          saving: false,
+        };
+      }));
     } catch {
       showToast('error', 'Impossible de charger les feature flags');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selected]);
 
   useEffect(() => { load(); }, [load]);
 
   const toggle = async (key: string, value: boolean) => {
     setFlags(prev => prev.map(f => f.key === key ? { ...f, saving: true } : f));
     try {
-      await adminApi.setSetting(key, String(value));
-      setFlags(prev => prev.map(f => f.key === key ? { ...f, enabled: value, saving: false } : f));
+      await adminApi.setSetting(scopedKey(key, selected), String(value));
+      setFlags(prev => prev.map(f => f.key === key ? { ...f, enabled: value, overridden: selected !== 'GLOBAL', saving: false } : f));
       const flag = FLAG_DEFS.find(f => f.key === key);
       showToast('success', `${flag?.label} ${value ? 'activé' : 'désactivé'}`);
     } catch (e: any) {
@@ -98,7 +111,7 @@ export function FeatureFlagsPage() {
     );
   }
 
-  const categories = (['passenger', 'driver', 'shared'] as const);
+  const categories = (['passenger', 'driver', 'shared', 'workflow'] as const);
   const enabledCount = flags.filter(f => f.enabled).length;
 
   return (
@@ -112,6 +125,12 @@ export function FeatureFlagsPage() {
         <p className="text-sm text-slate-500 mt-0.5">
           Activez ou désactivez les fonctionnalités des apps en temps réel — sans redéploiement
         </p>
+      </div>
+
+      {/* Scope pays */}
+      <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-600">
+        <span className="font-medium">Pays :</span>
+        <span className="font-semibold text-slate-800">{selected === 'GLOBAL' ? 'Global (tous pays)' : selected}</span>
       </div>
 
       {/* Toast */}
@@ -184,6 +203,11 @@ export function FeatureFlagsPage() {
                       }`}>
                         {flag.enabled ? 'ON' : 'OFF'}
                       </span>
+                      {flag.overridden && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">
+                          override pays
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">{flag.description}</p>
                     <p className="text-[10px] font-mono text-slate-300 mt-0.5">{flag.key}</p>

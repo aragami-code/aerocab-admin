@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, Globe, CheckCircle, XCircle, AlertCircle, AlertTriangle, Star, Power, PauseCircle } from 'lucide-react';
+import { Plus, Globe, CheckCircle, XCircle, AlertCircle, AlertTriangle, Star, Power, PauseCircle, Wand2 } from 'lucide-react';
 import { adminApi } from '../services/api';
+import { CountryWizard } from '../components/wizard/CountryWizard';
 
 interface OperatedCountry {
   code: string;
@@ -34,6 +35,7 @@ export function PaysPage() {
   const [readiness, setReadiness] = useState<Record<string, Readiness>>({});
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [wizard, setWizard] = useState<{ mode: 'create' | 'complete'; code?: string } | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState<string>('');
@@ -161,7 +163,7 @@ export function PaysPage() {
           </p>
         </div>
         <button
-          onClick={() => { setShowForm(!showForm); setError(''); }}
+          onClick={() => { setError(''); setWizard({ mode: 'create' }); }}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-dark transition-colors"
         >
           <Plus className="w-4 h-4" />
@@ -340,6 +342,16 @@ export function PaysPage() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2 flex-wrap">
+                        {c.status !== 'active' && !isReady && (
+                          <button
+                            onClick={() => setWizard({ mode: 'complete', code: c.code })}
+                            disabled={isBusy}
+                            title={`Compléter la configuration — manque : ${missing.join(', ')}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border border-primary/30 text-primary hover:bg-primary/5 disabled:opacity-40"
+                          >
+                            <Wand2 className="w-3.5 h-3.5" /> Compléter
+                          </button>
+                        )}
                         {c.status !== 'active' && (
                           <button
                             onClick={() => handleActivate(c)}
@@ -379,6 +391,15 @@ export function PaysPage() {
           </table>
         )}
       </div>
+
+      {wizard && (
+        <CountryWizard
+          mode={wizard.mode}
+          initialCode={wizard.code}
+          onClose={() => setWizard(null)}
+          onChanged={() => { setWizard(null); fetchCountries(); }}
+        />
+      )}
     </div>
   );
 }
