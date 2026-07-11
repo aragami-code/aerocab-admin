@@ -1,5 +1,14 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+export type DocConfigItem = {
+  type: string;
+  label: string;
+  description?: string;
+  required: boolean;
+  enabled: boolean;
+  acceptedExtensions?: string[];
+};
+
 class AdminApiClient {
   private baseUrl: string;
 
@@ -31,7 +40,12 @@ class AdminApiClient {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.message || 'Erreur serveur');
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent('admin-session-expired'));
+      }
+      const err = new Error(data.message || 'Erreur serveur') as any;
+      err.status = response.status;
+      throw err;
     }
 
     return data as T;
@@ -69,6 +83,21 @@ class AdminApiClient {
   }
 
   // Drivers
+  async getPalettes() {
+    return this.request<{ id: string; name: string; primary: string; accent: string }[]>('/branding/palettes');
+  }
+
+  async getBranding() {
+    return this.request<{
+      primaryColor: string; accentColor: string; logoUrl: string | null;
+      appNamePassenger: string; appNameDriver: string;
+    }>('/admin/branding');
+  }
+
+  async updateBranding(dto: Record<string, unknown>) {
+    return this.request<any>('/admin/branding', { method: 'PATCH', body: dto });
+  }
+
   async getDrivers(params?: { status?: string; page?: number; limit?: number }) {
     const q = new URLSearchParams();
     if (params?.status) q.set('status', params.status);
@@ -162,6 +191,29 @@ class AdminApiClient {
     return res.json();
   }
 
+  /** Upload d'un APK (passenger|driver). Renvoie une URL absolue prête pour apk_url. */
+  async uploadApk(file: File, app: 'passenger' | 'driver', onProgress?: (pct: number) => void): Promise<{ url: string }> {
+    const token = this.getToken();
+    const res = await new Promise<{ url: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${this.baseUrl}/uploads/apk?app=${app}`);
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100)); };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error('Réponse invalide')); }
+        } else reject(new Error(`Échec upload APK (${xhr.status})`));
+      };
+      xhr.onerror = () => reject(new Error('Échec réseau upload APK'));
+      const fd = new FormData();
+      fd.append('file', file);
+      xhr.send(fd);
+    });
+    // L'endpoint renvoie une URL relative (/api/apk/...) ; on la rend absolue avec l'origine API.
+    const origin = this.baseUrl.replace(/\/api\/?$/, '');
+    return { url: res.url.startsWith('http') ? res.url : `${origin}${res.url}` };
+  }
+
   async reopenReport(id: string) {
     return this.request<any>(`/reports/${id}/reopen`, { method: 'PATCH' });
   }
@@ -170,6 +222,13 @@ class AdminApiClient {
     return this.request<{ message: string }>(`/reports/${id}/resolve`, {
       method: 'PATCH',
       body: { status: action, resolution },
+    });
+  }
+
+  async revokeSanctions(id: string, opts: { liftSuspension: boolean; restorePoints: boolean; restoreScore: boolean }) {
+    return this.request<{ message: string; actions: string[] }>(`/reports/${id}/revoke-sanctions`, {
+      method: 'PATCH',
+      body: opts,
     });
   }
 
@@ -214,13 +273,96 @@ class AdminApiClient {
     });
   }
 
-  // Operated countries
-  async listOperatedCountries() { return this.request<any[]>('/admin/countries'); }
-  async getCountryReadiness(code: string) { return this.request<{ ready: boolean; missing: string[] }>(`/admin/countries/${code}/readiness`); }
-  async createOperatedCountry(data: any) { return this.request('/admin/countries', { method: 'POST', body: data }); }
-  async activateCountry(code: string) { return this.request(`/admin/countries/${code}/activate`, { method: 'PATCH' }); }
-  async suspendCountry(code: string) { return this.request(`/admin/countries/${code}/suspend`, { method: 'PATCH' }); }
-  async setDefaultCountry(code: string) { return this.request(`/admin/countries/${code}/default`, { method: 'PATCH' }); }
+  async getAllCountries() {
+    return this.request<{ code: string; name: string; currency: string; paymentMethods: any[]; isActive: boolean }[]>(
+      '/admin/settings/countries',
+    );
+  }
+
+  async createCountry(code: string, name: string, currency: string) {
+    return this.request<{ code: string }>('/admin/settings/countries', {
+      method: 'POST',
+      body: { code, name, currency },
+    });
+  }
+
+  async deleteCountry(countryCode: string) {
+    return this.request<{ success: boolean }>(`/admin/settings/countries/${countryCode}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getCountryPaymentMethods(countryCode: string) {
+    return this.request<{ countryCode: string; name: string; methods: { id: string; label: string; icon: string }[] }>(
+      `/admin/settings/countries/${countryCode}/payment-methods`,
+    );
+  }
+
+  async setCountryPaymentMethods(countryCode: string, methods: { id: string; label: string; icon: string }[]) {
+    return this.request<{ success: boolean }>(`/admin/settings/countries/${countryCode}/payment-methods`, {
+      method: 'PATCH',
+      body: { methods },
+    });
+  }
+
+  async getDriverDocumentConfig() {
+    return this.request<{ documents: DocConfigItem[] }>('/admin/settings/driver-documents');
+  }
+
+  async setDriverDocumentConfig(documents: DocConfigItem[]) {
+    return this.request<{ success: boolean; documents: DocConfigItem[] }>(
+      '/admin/settings/driver-documents',
+      { method: 'PATCH', body: { documents } },
+    );
+  }
+
+  async getAllDocumentTypes() {
+    return this.request<{ types: string[]; defaults: DocConfigItem[] }>('/admin/settings/driver-documents/all');
+  }
+
+  async getPointsPackages() {
+    return this.request<{ packages: number[] }>('/admin/settings/points-packages');
+  }
+
+  async setPointsPackages(packages: number[]) {
+    return this.request<{ success: boolean; packages: number[] }>('/admin/settings/points-packages', {
+      method: 'PATCH',
+      body: { packages },
+    });
+  }
+
+  // Bot assistant
+  async getBotSettings() {
+    return this.request<{
+      enabled:      boolean;
+      provider:     string;
+      model:        string;
+      maxTokens:    number;
+      systemPrompt: string;
+      providers:    string[];
+      claudeKey:    { configured: boolean; masked: string };
+      openaiKey:    { configured: boolean; masked: string };
+      zhipuKey:     { configured: boolean; masked: string };
+      geminiKey:    { configured: boolean; masked: string };
+    }>('/admin/settings/bot');
+  }
+
+  async setBotSettings(payload: {
+    enabled?:      boolean;
+    provider?:     string;
+    model?:        string;
+    maxTokens?:    number;
+    systemPrompt?: string;
+    claudeApiKey?: string;
+    openaiApiKey?: string;
+    zhipuApiKey?:  string;
+    geminiApiKey?: string;
+  }) {
+    return this.request<{ success: boolean }>('/admin/settings/bot', {
+      method: 'PATCH',
+      body: payload,
+    });
+  }
 
   // AppSettings dynamiques
   async getAppSettings() {
@@ -267,6 +409,15 @@ class AdminApiClient {
     return this.request<{ configured: boolean; maskedKey: string }>('/admin/settings/maps-key');
   }
 
+  async getMapsEmbedUrl(origin?: string, destination?: string) {
+    const params = new URLSearchParams();
+    if (origin)      params.set('origin', origin);
+    if (destination) params.set('destination', destination);
+    return this.request<{ url: string | null; configured: boolean }>(
+      `/admin/settings/maps-embed?${params.toString()}`
+    );
+  }
+
   async setMapsKey(key: string) {
     return this.request<{ success: boolean }>('/admin/settings/maps-key', {
       method: 'PUT',
@@ -283,6 +434,13 @@ class AdminApiClient {
   }
 
   async setSetting(key: string, value: string) {
+    return this.request<{ key: string; value: string }>('/admin/settings/key', {
+      method: 'PATCH',
+      body: { key, value },
+    });
+  }
+
+  async setKey(key: string, value: string) {
     return this.request<{ key: string; value: string }>('/admin/settings/key', {
       method: 'PATCH',
       body: { key, value },
@@ -347,6 +505,47 @@ class AdminApiClient {
     });
   }
 
+  // Payment security settings
+  async setPaymentSecurity(data: Record<string, string>) {
+    return this.request<{ success: boolean; updated: string[] }>('/admin/settings/payment-security', {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  // Payment providers
+  async getPaymentProviders() {
+    return this.request<{
+      enabled: Record<string, boolean>;
+      credentials: Record<string, { label: string; configured: boolean; maskedValue: string }>;
+    }>('/admin/settings/payment-providers');
+  }
+
+  async setPaymentProviders(data: {
+    enabled?: Record<string, boolean>;
+    credentials?: Record<string, string>;
+  }) {
+    return this.request<{ updated: string[] }>('/admin/settings/payment-providers', {
+      method: 'PUT',
+      body: data,
+    });
+  }
+
+  async testEdoctorConnection() {
+    return this.request<{ ok: boolean; message: string; providers?: any[] }>(
+      '/admin/settings/payment-providers/edoctor/test',
+      { method: 'POST' },
+    );
+  }
+
+  async testFlightRadar24() {
+    return this.request<{ ok: boolean; message: string }>('/admin/settings/flights/fr24/test', { method: 'POST' });
+  }
+
+  async testAeroDataBox() {
+    return this.request<{ ok: boolean; message: string }>('/admin/settings/flights/aerodatabox/test', { method: 'POST' });
+  }
+
   // Email provider
   async getEmailProvider() {
     return this.request<{ provider: string; availableProviders: string[] }>('/admin/settings/email-provider');
@@ -367,7 +566,7 @@ class AdminApiClient {
     }>(`/promos?page=${page}&limit=${limit}`);
   }
 
-  async createPromo(dto: { code: string; discount: number; maxUses: number; expiresAt?: string; usagePerUser?: boolean }) {
+  async createPromo(dto: { code: string; discount: number; maxUses: number; expiresAt?: string; usagePerUser?: boolean; countryCode?: string }) {
     return this.request<PromoCode>('/promos', { method: 'POST', body: dto });
   }
 
@@ -404,8 +603,13 @@ class AdminApiClient {
   }
 
   // Airports
-  async getAirportsAdmin() {
-    return this.request<Airport[]>('/airports/admin');
+  async getAirportsAdmin(params: { page?: number; limit?: number; search?: string; country?: string } = {}) {
+    const qs = new URLSearchParams();
+    if (params.page)    qs.set('page',    String(params.page));
+    if (params.limit)   qs.set('limit',   String(params.limit));
+    if (params.search)  qs.set('search',  params.search);
+    if (params.country) qs.set('country', params.country);
+    return this.request<AirportPage>(`/airports/admin${qs.toString() ? `?${qs}` : ''}`);
   }
 
   async createAirport(data: Partial<Airport>) {
@@ -414,6 +618,11 @@ class AdminApiClient {
 
   async updateAirport(id: string, data: Partial<Airport>) {
     return this.request<Airport>(`/airports/${id}`, { method: 'PATCH', body: data });
+  }
+
+  // Toggle dédié au flag « opéré » (PATCH /airports/:id/operated)
+  async setAirportOperated(id: string, isOperated: boolean) {
+    return this.request<Airport>(`/airports/${id}/operated`, { method: 'PATCH', body: { isOperated } });
   }
 
   async deleteAirport(id: string) {
@@ -448,13 +657,69 @@ class AdminApiClient {
     return this.request<{ ratings: any[] }>(`/admin/bookings/${bookingId}/ratings`);
   }
 
-  async updateDriverProfile(driverId: string, data: { driverType?: string; consigneEnabled?: boolean }) {
+  async getPageStats(domain: string, params: { from: string; to: string; granularity: 'day' | 'month'; country?: string }) {
+    const qs = new URLSearchParams();
+    qs.set('from', params.from);
+    qs.set('to', params.to);
+    qs.set('granularity', params.granularity);
+    if (params.country && params.country !== 'GLOBAL') qs.set('country', params.country);
+    return this.request<AdminStats>(`/admin/stats/${domain}?${qs.toString()}`);
+  }
+
+  async getBookingDetail(bookingId: string) {
+    return this.request<{
+      financials: {
+        isCash: boolean; paymentMethod: string; paymentStatus: string;
+        gross: number; commissionRate: number | null; commissionAmount: number | null;
+        providerFeeAmount: number; net: number | null; tip: number;
+        payoutStatus: string | null; payoutCurrency: string; cashDebt: number | null;
+        discountAmount: number; discountFromPoints: number; displayAmount: number | null;
+        intent: { status: string; provider: string; amount: number; currency: string;
+          authorizedAt: string | null; capturedAt: string | null;
+          refundedAt: string | null; failedAt: string | null } | null;
+        pointsTx: { type: string; points: number; label: string; createdAt: string }[];
+      };
+      track: {
+        positions: { lat: number; lng: number; at: string }[];
+        pointCount: number; realDistanceKm: number; estimatedDistanceKm: number | null;
+      };
+    }>(`/admin/bookings/${bookingId}/detail`);
+  }
+
+  async refundBooking(bookingId: string, reason?: string) {
+    return this.request<{ success: boolean; amount: number }>(`/admin/bookings/${bookingId}/refund`, {
+      method: 'POST',
+      body: { reason },
+    });
+  }
+
+  async updateDriverProfile(driverId: string, data: { driverType?: string }) {
     return this.request<any>(`/admin/drivers/${driverId}/profile`, { method: 'PATCH', body: data });
   }
 
   async suspendDriver(driverId: string, action: 'suspend' | 'reactivate') {
     return this.request<any>(`/admin/drivers/${driverId}/suspend`, { method: 'PATCH', body: { action } });
   }
+
+  async listCountryChangeRequests(status?: string) {
+    const qs = status ? `?status=${status}` : '';
+    return this.request<any[]>(`/admin/drivers/country-change-requests${qs}`);
+  }
+
+  async reviewCountryChangeRequest(id: string, status: 'approved' | 'rejected', adminNote?: string) {
+    return this.request<{ success: boolean; status: string }>(
+      `/admin/drivers/country-change-requests/${id}`,
+      { method: 'PATCH', body: { status, adminNote } },
+    );
+  }
+
+  // Operated countries
+  async listOperatedCountries() { return this.request<any[]>('/admin/countries'); }
+  async getCountryReadiness(code: string) { return this.request<{ ready: boolean; missing: string[] }>(`/admin/countries/${code}/readiness`); }
+  async createOperatedCountry(data: any) { return this.request('/admin/countries', { method: 'POST', body: data }); }
+  async activateCountry(code: string) { return this.request(`/admin/countries/${code}/activate`, { method: 'PATCH' }); }
+  async suspendCountry(code: string) { return this.request(`/admin/countries/${code}/suspend`, { method: 'PATCH' }); }
+  async setDefaultCountry(code: string) { return this.request(`/admin/countries/${code}/default`, { method: 'PATCH' }); }
 
   async updateUserStatus(userId: string, status: 'active' | 'suspended') {
     return this.request<any>(`/admin/users/${userId}/status`, { method: 'PATCH', body: { status } });
@@ -510,6 +775,35 @@ class AdminApiClient {
     URL.revokeObjectURL(url);
   }
 
+  async downloadFile(endpoint: string, filename: string, mimeType: string) {
+    const token = this.getToken();
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`Erreur export (${response.status})`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(new Blob([blob], { type: mimeType }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async openHtmlInTab(endpoint: string) {
+    const token = this.getToken();
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`Erreur export PDF (${response.status})`);
+    const html = await response.text();
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  }
+
   // Monitoring
   async getActiveBookings() {
     return this.request<any[]>('/admin/bookings/active');
@@ -529,6 +823,25 @@ class AdminApiClient {
       totalRevenue: number;
       byType: Record<string, { count: number; revenue: number }>;
     }>(`/admin/metrics/revenue?period=${period}`);
+  }
+
+  async getFinancialReport(from: string, to: string) {
+    return this.request<{
+      from: string; to: string;
+      totalBookings: number; totalRevenue: number;
+      commission: number; driverPayouts: number;
+      byType: Record<string, { count: number; revenue: number }>;
+    }>(`/admin/financial-report?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  }
+
+  // Revenue
+  async getRevenue(params: { from?: string; to?: string; granularity?: 'range' | 'monthly' }) {
+    const q = new URLSearchParams();
+    if (params.from) q.set('from', params.from);
+    if (params.to) q.set('to', params.to);
+    if (params.granularity) q.set('granularity', params.granularity);
+    const qs = q.toString();
+    return this.request<RevenueResponse>(`/admin/revenue${qs ? `?${qs}` : ''}`);
   }
 
   // Tariff snapshots
@@ -609,6 +922,102 @@ class AdminApiClient {
       body: { permissionKeys },
     });
   }
+
+  // ── KYC ─────────────────────────────────────────────────────────────────────
+
+  async getTelephonyConfig() {
+    return this.request<{
+      callsProvider: 'webrtc' | 'twilio_proxy';
+      twilioAccountSid: string;
+      twilioAuthToken: string;
+      twilioProxyServiceSid: string;
+      configured: boolean;
+    }>('/admin/settings/telephony');
+  }
+
+  async saveTelephonyConfig(data: {
+    callsProvider: 'webrtc' | 'twilio_proxy';
+    twilioAccountSid?: string;
+    twilioAuthToken?: string;
+    twilioProxyServiceSid?: string;
+  }) {
+    return this.request<void>('/admin/settings/telephony', { method: 'PUT', body: data });
+  }
+
+  async getKycPending(page = 1) {
+    return this.request<{
+      data: {
+        id: string; name: string | null; phone: string; email: string | null;
+        kycStatus: string;
+        kycDocuments: { id: string; type: string; status: string; fileUrl: string; rejectionReason: string | null; createdAt: string }[];
+        createdAt: string;
+      }[];
+      total: number; page: number; limit: number;
+    }>(`/kyc/admin/pending?page=${page}`);
+  }
+
+  async reviewKyc(userId: string, action: 'approve' | 'reject', reason?: string) {
+    return this.request<{ success: boolean; action: string }>(
+      `/kyc/admin/${userId}/review`,
+      { method: 'POST', body: { action, reason } },
+    );
+  }
+
+  // Admin Notifications
+  async getNotifications(params: { page?: number; limit?: number; unread?: boolean } = {}) {
+    const qs = new URLSearchParams();
+    if (params.page)   qs.set('page',   String(params.page));
+    if (params.limit)  qs.set('limit',  String(params.limit));
+    if (params.unread) qs.set('unread', 'true');
+    return this.request<{
+      data: AdminNotification[];
+      total: number; page: number; limit: number; totalPages: number;
+    }>(`/admin/notifications${qs.toString() ? `?${qs}` : ''}`);
+  }
+
+  async getUnreadNotificationCount() {
+    return this.request<{ count: number }>('/admin/notifications/unread-count');
+  }
+
+  async markNotificationRead(id: string) {
+    return this.request<void>(`/admin/notifications/${id}/read`, { method: 'PATCH' });
+  }
+
+  async markAllNotificationsRead() {
+    return this.request<{ success: boolean }>('/admin/notifications/read-all', { method: 'POST' });
+  }
+}
+
+export interface RevenueResponse {
+  period: { from: string; to: string; granularity: 'range' | 'monthly' };
+  baseCurrency: string; // 'XAF'
+  byCountry: {
+    country: string;
+    currency: string;
+    platform: { registration: number; accessPass: number; total: number };
+    rides: { commission: number; total: number };
+    grandLocal: number;
+    grandBase: number;
+  }[];
+  consolidated: { baseCurrency: string; platform: number; rides: number; total: number };
+  timeseries: { month: string; platform: number; rides: number }[]; // base currency
+  comparison: {
+    platform: { current: number; previous: number; deltaPct: number | null };
+    rides: { current: number; previous: number; deltaPct: number | null };
+    total: { current: number; previous: number; deltaPct: number | null };
+  };
+  insights: { type: string; level: 'good' | 'info' | 'warn'; text: string }[];
+}
+
+// Forme générique des stats par page (bande analytique réutilisable).
+export type AdminChart =
+  | { kind: 'timeseries'; title: string; span?: 1 | 2; data: Record<string, number | string>[]; series: { key: string; label: string; color: string }[] }
+  | { kind: 'pie'; title: string; data: { name: string; value: number }[] }
+  | { kind: 'bar'; title: string; data: { name: string; value: number }[]; color?: string; money?: boolean };
+
+export interface AdminStats {
+  kpis: { label: string; value: number; tone?: string; suffix?: string; money?: boolean }[];
+  charts: AdminChart[];
 }
 
 export interface AuditLog {
@@ -632,6 +1041,7 @@ export interface PromoCode {
   expiresAt: string | null;
   isActive: boolean;
   usagePerUser: boolean;
+  countryCode: string | null;
   createdAt: string;
 }
 
@@ -664,9 +1074,31 @@ export interface Airport {
   countryCode: string;
   latitude: number;
   longitude: number;
+  detectionRadius: number;
+  exitDelayMinutes: number;
   isActive: boolean;
+  isOperated: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AirportPage {
+  data: Airport[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface AdminNotification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown> | null;
+  read: boolean;
+  readAt: string | null;
+  createdAt: string;
 }
 
 export const adminApi = new AdminApiClient(API_BASE_URL);
