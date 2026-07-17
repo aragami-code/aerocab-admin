@@ -52,10 +52,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 function PermissionRoute({ permission, children }: { permission: string; children: React.ReactNode }) {
-  const { permissions, loaded } = usePermissionsStore((s) => ({ permissions: s.permissions, loaded: s.loaded }));
-  if (!loaded) return null;
-  // Empty permissions = super_admin (all access)
-  if (permissions.length > 0 && !permissions.includes(permission)) {
+  const { permissions, status } = usePermissionsStore((s) => ({ permissions: s.permissions, status: s.status }));
+  if (status === 'idle' || status === 'loading') return null;
+  // Fail-closed: on error (permissions unknown) or missing permission, deny access.
+  if (!permissions.includes(permission)) {
     return <Navigate to="/" replace />;
   }
   return <>{children}</>;
